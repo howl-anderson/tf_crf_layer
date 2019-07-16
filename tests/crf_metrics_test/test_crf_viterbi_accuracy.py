@@ -16,7 +16,8 @@ def test_crf_viterbi_accuracy():
     embedding_num = 12
 
     x, y = get_random_data(nb_samples, timesteps, x_high=embedding_num, y_high=output_dim)
-    x[0, -4:] = 0  # right padding; left padding is not supported due to the tf.contrib.crf
+    # right padding; left padding is not supported due to the tf.contrib.crf
+    x[0, -4:] = 0
 
     # test with masking, fix length
     model = Sequential()
@@ -32,3 +33,7 @@ def test_crf_viterbi_accuracy():
     np_acc = (y_pred[x > 0] == y[x > 0]).astype('float32').mean()
     print(v_acc, np_acc)
     assert np.abs(v_acc - np_acc) < 1e-4
+
+
+if __name__ == "__main__":
+    test_crf_viterbi_accuracy()

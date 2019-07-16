@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import initializers, regularizers, constraints, \
     activations
 from tensorflow.python.keras.layers import InputSpec, Layer
@@ -89,6 +90,7 @@ class CRF(Layer):
                                             regularizer=self.chain_regularizer,
                                             constraint=self.chain_constraint)
 
+        # bias that works with self.kernel
         if self.use_bias:
             self.bias = self.add_weight(shape=(self.units,),
                                         name='bias',
@@ -98,36 +100,37 @@ class CRF(Layer):
         else:
             self.bias = 0
 
-        # if self.use_boundary:
-        #     self.left_boundary = self.add_weight(shape=(self.units,),
-        #                                          name='left_boundary',
-        #                                          initializer=self.boundary_initializer,
-        #                                          regularizer=self.boundary_regularizer,
-        #                                          constraint=self.boundary_constraint)
-        #     self.right_boundary = self.add_weight(shape=(self.units,),
-        #                                           name='right_boundary',
-        #                                           initializer=self.boundary_initializer,
-        #                                           regularizer=self.boundary_regularizer,
-        #                                           constraint=self.boundary_constraint)
+        # weight of <START> to tag probability and tag to <END> probability
+        if self.use_boundary:
+            self.left_boundary = self.add_weight(shape=(self.units,),
+                                                 name='left_boundary',
+                                                 initializer=self.boundary_initializer,
+                                                 regularizer=self.boundary_regularizer,
+                                                 constraint=self.boundary_constraint)
+            self.right_boundary = self.add_weight(shape=(self.units,),
+                                                  name='right_boundary',
+                                                  initializer=self.boundary_initializer,
+                                                  regularizer=self.boundary_regularizer,
+                                                  constraint=self.boundary_constraint)
+
+        super(CRF, self).build(input_shape)
 
     def call(self, input, mask=None, **kwargs):
-        """
-
-        :param input:
-        :param mask: Tensor("embedding/NotEqual:0", shape=(?, ?), dtype=bool) or None
-        :param kwargs:
-        :return:
-        """
+        # mask: Tensor(shape=(?, ?), dtype=bool) or None
         print("mask: {}".format(mask))
 
         # remember this value for later use
         self.mask = mask
 
         if mask is not None:
-            assert tf.keras.backend.ndim(
-                mask) == 2, 'Input mask to CRF must have dim 2 if not None'
+            assert K.ndim(mask) == 2, 'Input mask to CRF must have dim 2 if not None'
 
         logits = self._dense_layer(input)
+
+        # appending boundary probability info
+        if self.use_boundary:
+            logits = self.add_boundary_energy(
+                logits, mask, self.left_boundary, self.right_boundary)
 
         # remember this value for later use
         self.logits = logits
@@ -138,32 +141,32 @@ class CRF(Layer):
         # remember this value for later use
         self.nwords = nwords
 
-        # if self.test_mode == 'viterbi':
-        test_output = self.get_viterbi_decoding(logits, nwords)
-        # else:
-        #     # TODO: not finished yet
-        #     test_output = self.get_marginal_prob(input, mask)
+        if self.test_mode == 'viterbi':
+            test_output = self.get_viterbi_decoding(logits, nwords)
+        else:
+            # TODO: not supported yet
+            pass
+            # test_output = self.get_marginal_prob(input, mask)
 
-        # self.uses_learning_phase = True
-        # if self.learn_mode == 'join':
-        # train_output = tf.keras.backend.zeros_like(tf.keras.backend.dot(input, self.kernel))
-        # out = tf.keras.backend.in_train_phase(train_output, test_output)
-        test_output = tf.cast(test_output, tf.float32)
-        # out = tf.keras.backend.in_train_phase(logits, test_output)
-        out = test_output
-        # else:
-        #     # TODO: not finished yet
-        #     if self.test_mode == 'viterbi':
-        #         train_output = self.get_marginal_prob(input, mask)
-        #         out = tf.keras.backend.in_train_phase(train_output,
-        #                                               test_output)
-        #     else:
-        #         out = test_output
+        if self.learn_mode == 'join':
+            # WHY: don't remove this line, useless but remote it will cause bug
+            test_output = tf.cast(test_output, tf.float32)
+            out = test_output
+        else:
+            # TODO: not supported yet
+            pass
+            # if self.test_mode == 'viterbi':
+            #     train_output = self.get_marginal_prob(input, mask)
+            #     out = K.in_train_phase(train_output,
+            #                                           test_output)
+            # else:
+            #     out = test_output
+
         return out
 
     def _get_nwords(self, input, mask):
         if mask is not None:
-            int_mask = tf.cast(mask, tf.int8)
+            int_mask = K.cast(mask, tf.int8)
             nwords = self.mask_to_nwords(int_mask)
         else:
             # make a mask tensor from input, then used to generate nwords
@@ -177,14 +180,45 @@ class CRF(Layer):
         return nwords
 
     def mask_to_nwords(self, mask):
-        nwords = tf.cast(tf.reduce_sum(mask, 1), tf.int64)
+        nwords = K.cast(K.sum(mask, 1), tf.int64)
         return nwords
 
-    def get_viterbi_decoding(self, input_energy, nwords):
-        # if self.use_boundary:
-        #     input_energy = self.add_boundary_energy(
-        #         input_energy, mask, self.left_boundary, self.right_boundary)
+    @staticmethod
+    def shift_left(x, offset=1):
+        assert offset > 0
+        return K.concatenate([x[:, offset:], K.zeros_like(x[:, :offset])], axis=1)
 
+    @staticmethod
+    def shift_right(x, offset=1):
+        assert offset > 0
+        return K.concatenate([K.zeros_like(x[:, :offset]), x[:, :-offset]], axis=1)
+
+    def add_boundary_energy(self, energy, mask, start, end):
+        def expend_scalar_to_3d(x):
+            # expend tensor from shape (x, ) to (1, 1, x)
+            return K.expand_dims(K.expand_dims(x, 0), 0)
+
+        start = expend_scalar_to_3d(start)
+        end = expend_scalar_to_3d(end)
+        if mask is None:
+            # TODO: maybe using * better than + ?
+            energy = K.concatenate(
+                [energy[:, :1, :] + start, energy[:, 1:, :]],
+                axis=1)
+            energy = K.concatenate(
+                [energy[:, :-1, :], energy[:, -1:, :] + end],
+                axis=1)
+        else:
+            mask = K.expand_dims(K.cast(mask, K.floatx()), axis=-1)
+            start_mask = K.cast(K.greater(mask, self.shift_right(mask)), K.floatx())
+
+            # TODO: is this a bug? should be K.greater(mask, self.shift_left(mask)) ?
+            end_mask = K.cast(K.greater(self.shift_left(mask), mask), K.floatx())
+            energy = energy + start_mask * start
+            energy = energy + end_mask * end
+        return energy
+
+    def get_viterbi_decoding(self, input_energy, nwords):
         pred_ids, _ = tf.contrib.crf.crf_decode(input_energy,
                                                 self.chain_kernel, nwords)
 
@@ -232,55 +266,46 @@ class CRF(Layer):
         return output_shape
 
     def compute_mask(self, input, mask=None):
-        # if mask is not None and self.learn_mode == 'join':
-        #     # new_mask = tf.keras.backend.any(mask, axis=1)
-        #     return new_mask
+        if mask is not None and self.learn_mode == 'join':
+            # transform mask from shape (?, ?) to (?, )
+            new_mask = K.any(mask, axis=1)
+            return new_mask
 
-        # must be None if this is the last layer
-        new_mask = None
-        return new_mask
+        return mask
 
     def get_decode_result(self, logits, mask):
-        nwords = tf.cast(tf.reduce_sum(mask, 1), tf.int64)
+        nwords = K.cast(K.sum(mask, 1), tf.int64)
 
         pred_ids, _ = tf.contrib.crf.crf_decode(logits, self.chain_kernel,
                                                 nwords)
 
         return pred_ids
 
-    # def get_negative_log_likelihood(self, y_preds, y_true, mask):
     def get_negative_log_likelihood(self, y_true):
         y_preds = self.logits
 
-        # nwords = tf.cast(tf.reduce_sum(mask, 1), tf.int64)
         nwords = self.nwords
 
-        y_preds = tf.cast(y_preds, tf.float32)
-        y_true = tf.cast(y_true, tf.int64)
-        nwords = tf.cast(nwords, tf.int32)
-        self.chain_kernel = tf.cast(self.chain_kernel, tf.float32)
-
-        # y_true = tf.squeeze(y_true, [-1])
+        y_preds = K.cast(y_preds, tf.float32)
+        y_true = K.cast(y_true, tf.int64)
+        nwords = K.cast(nwords, tf.int32)
+        self.chain_kernel = K.cast(self.chain_kernel, tf.float32)
 
         log_likelihood, _ = tf.contrib.crf.crf_log_likelihood(y_preds, y_true,
                                                               nwords,
                                                               self.chain_kernel)
 
-        loss = tf.reduce_mean(-log_likelihood)
-
-        return loss
+        return -log_likelihood
 
     def get_accuracy(self, y_true, y_pred):
-        judge = tf.keras.backend.cast(tf.keras.backend.equal(y_pred, y_true),
-                                      tf.keras.backend.floatx())
+        judge = K.cast(K.equal(y_pred, y_true), K.floatx())
         if self.mask is None:
-            return tf.keras.backend.mean(judge)
+            return K.mean(judge)
         else:
-            mask = tf.keras.backend.cast(self.mask, tf.keras.backend.floatx())
-            return tf.keras.backend.sum(judge * mask) / tf.keras.backend.sum(
-                mask)
+            mask = K.cast(self.mask, K.floatx())
+            return K.sum(judge * mask) / K.sum(mask)
 
     def _dense_layer(self, input_):
         # TODO: can simply just use tf.keras.layers.dense ?
         return self.activation(
-            tf.keras.backend.dot(input_, self.kernel) + self.bias)
+            K.dot(input_, self.kernel) + self.bias)

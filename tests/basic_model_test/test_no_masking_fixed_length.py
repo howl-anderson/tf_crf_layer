@@ -1,3 +1,5 @@
+import os
+
 from tensorflow.python.keras import Sequential
 from tensorflow.python.keras.layers import Embedding
 from tensorflow.python.keras.models import load_model
@@ -33,3 +35,8 @@ def test_masking_fixed_length():
     load_model(MODEL_PERSISTENCE_PATH,
                custom_objects={'CRF': CRF,
                                'crf_loss': crf_loss})
+
+    try:
+        os.remove(MODEL_PERSISTENCE_PATH)
+    except OSError:
+        pass

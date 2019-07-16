@@ -1,15 +1,12 @@
-import os
-
 from tensorflow.python.keras import Sequential
 from tensorflow.python.keras.layers import Embedding
-from tensorflow.python.keras.models import load_model
 
 from layer import CRF
 from loss import crf_loss
 from tests.common import get_random_data
 
 
-def test_masking_fixed_length():
+def test_masking_with_boundary():
     nb_samples = 2
     timesteps = 10
     embedding_dim = 4
@@ -24,28 +21,10 @@ def test_masking_fixed_length():
     model = Sequential()
     model.add(Embedding(embedding_num, embedding_dim, input_length=timesteps,
                         mask_zero=True))
-    model.add(CRF(output_dim))
+    model.add(CRF(output_dim, use_boundary=True))
     model.compile(optimizer='adam', loss=crf_loss)
     model.summary()
     model.fit(x, y, epochs=1, batch_size=1)
     model.fit(x, y, epochs=1, batch_size=2)
     model.fit(x, y, epochs=1, batch_size=3)
     model.fit(x, y, epochs=1)
-
-    # check mask
-    y_pred = model.predict(x)
-    assert (y_pred[0, -4:] == 0).all()  # right padding
-    # left padding not working currently due to the tf.contrib.crf.*
-    # assert (y_pred[1, :5] == 0).all()
-
-    # test saving and loading model
-    MODEL_PERSISTENCE_PATH = './test_saving_crf_model.h5'
-    model.save(MODEL_PERSISTENCE_PATH)
-    load_model(MODEL_PERSISTENCE_PATH,
-               custom_objects={'CRF': CRF,
-                               'crf_loss': crf_loss})
-
-    try:
-        os.remove(MODEL_PERSISTENCE_PATH)
-    except OSError:
-        pass
