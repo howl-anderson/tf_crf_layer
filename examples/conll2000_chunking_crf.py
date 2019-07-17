@@ -52,60 +52,65 @@ def classification_report(y_true, y_pred, labels):
                     sum(report2[2]) / N, N) + '\n')
 
 
-# ------
-# Data
-# -----
+def main():
+    # ------
+    # Data
+    # -----
 
-# conll200 has two different targets, here will only use
-# IBO like chunking as an example
-train, test, voc = conll2000.load_data()
-(train_x, _, train_y) = train
-(test_x, _, test_y) = test
-(vocab, _, class_labels) = voc
+    # conll200 has two different targets, here will only use
+    # IBO like chunking as an example
+    train, test, voc = conll2000.load_data()
+    (train_x, _, train_y) = train
+    (test_x, _, test_y) = test
+    (vocab, _, class_labels) = voc
 
-# --------------
-# 1. Regular CRF
-# --------------
+    # --------------
+    # 1. Regular CRF
+    # --------------
 
-print('==== training CRF ====')
+    print('==== training CRF ====')
 
-model = Sequential()
-model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True))  # Random embedding
-# model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True, input_length=78))  # Random embedding
-crf = CRF(len(class_labels))
-model.add(crf)
-model.summary()
+    model = Sequential()
+    model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True))  # Random embedding
+    # model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True, input_length=78))  # Random embedding
+    crf = CRF(len(class_labels))
+    model.add(crf)
+    model.summary()
 
-# The default `crf_loss` for `learn_mode='join'` is negative log likelihood.
-model.compile('adam', loss=crf_loss, metrics=[crf_viterbi_accuracy])
-model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
+    # The default `crf_loss` for `learn_mode='join'` is negative log likelihood.
+    model.compile('adam', loss=crf_loss, metrics=[crf_viterbi_accuracy])
+    model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
 
-# test_y_pred = model.predict(test_x).argmax(-1)[test_x > 0]
-test_y_pred = model.predict(test_x)[test_x > 0]
-test_y_true = test_y[test_x > 0]
+    # test_y_pred = model.predict(test_x).argmax(-1)[test_x > 0]
+    test_y_pred = model.predict(test_x)[test_x > 0]
+    test_y_true = test_y[test_x > 0]
 
-print('\n---- Result of CRF ----\n')
-classification_report(test_y_true, test_y_pred, class_labels)
+    print('\n---- Result of CRF ----\n')
+    classification_report(test_y_true, test_y_pred, class_labels)
 
-# -------------
-# 2. BiLSTM-CRF
-# -------------
+    # -------------
+    # 2. BiLSTM-CRF
+    # -------------
 
-print('==== training BiLSTM-CRF ====')
+    print('==== training BiLSTM-CRF ====')
 
-model = Sequential()
-model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True))  # Random embedding
-# model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True, input_length=78))  # Random embedding
-model.add(Bidirectional(LSTM(BiRNN_UNITS // 2, return_sequences=True)))
-crf = CRF(len(class_labels), sparse_target=True)
-model.add(crf)
-model.summary()
+    model = Sequential()
+    model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True))  # Random embedding
+    # model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True, input_length=78))  # Random embedding
+    model.add(Bidirectional(LSTM(BiRNN_UNITS // 2, return_sequences=True)))
+    crf = CRF(len(class_labels), sparse_target=True)
+    model.add(crf)
+    model.summary()
 
-model.compile('adam', loss=crf_loss, metrics=[crf_viterbi_accuracy])
-model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
+    model.compile('adam', loss=crf_loss, metrics=[crf_viterbi_accuracy])
+    model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
 
-test_y_pred = model.predict(test_x)[test_x > 0]
-test_y_true = test_y[test_x > 0]
+    test_y_pred = model.predict(test_x)[test_x > 0]
+    test_y_true = test_y[test_x > 0]
 
-print('\n---- Result of BiLSTM-CRF ----\n')
-classification_report(test_y_true, test_y_pred, class_labels)
+    print('\n---- Result of BiLSTM-CRF ----\n')
+    classification_report(test_y_true, test_y_pred, class_labels)
+
+
+if __name__ == "__main__":
+    main()
