@@ -4,6 +4,21 @@ from tensorflow.python.keras import initializers, regularizers, constraints, \
     activations
 from tensorflow.python.keras.layers import InputSpec, Layer
 
+"""
+TODO
+
+* learn_mode is not supported
+* test_mode is not supported
+* sparse_target is not supported
+* use_boundary need test
+* input_dim is not know how to use
+* unroll is not supported
+
+* left padding of mask is not supported
+
+* not test yet if CRF is the first layer
+"""
+
 
 class CRF(Layer):
     def __init__(self, units,
@@ -64,6 +79,7 @@ class CRF(Layer):
         self.boundary_constraint = constraints.get(boundary_constraint)
         self.bias_constraint = constraints.get(bias_constraint)
 
+        self.input_dim = input_dim
         self.unroll = unroll
 
         # value remembered for loss/metrics function
@@ -71,19 +87,26 @@ class CRF(Layer):
         self.nwords = None
         self.mask = None
 
+        # global variable
+        self.kernel = None
+        self.chain_kernel = None
+        self.bias = None
+        self.left_boundary = None
+        self.right_boundary = None
+
     def build(self, input_shape):
         input_shape = tuple(tf.TensorShape(input_shape).as_list())
         self.input_spec = [InputSpec(shape=input_shape)]
         self.input_dim = input_shape[-1]
 
-        # weights that mapping arbitrary tensor to tensor who have correct shape
+        # weights that mapping arbitrary tensor to correct shape
         self.kernel = self.add_weight(shape=(self.input_dim, self.units),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
                                       constraint=self.kernel_constraint)
 
-        # weights that work as transfer probility of each tags
+        # weights that work as transfer probability of each tags
         self.chain_kernel = self.add_weight(shape=(self.units, self.units),
                                             name='chain_kernel',
                                             initializer=self.chain_initializer,
@@ -113,19 +136,19 @@ class CRF(Layer):
                                                   regularizer=self.boundary_regularizer,
                                                   constraint=self.boundary_constraint)
 
+        # or directly call self.built = True
         super(CRF, self).build(input_shape)
 
-    def call(self, input, mask=None, **kwargs):
+    def call(self, inputs, mask=None, **kwargs):
         # mask: Tensor(shape=(?, ?), dtype=bool) or None
-        print("mask: {}".format(mask))
-
-        # remember this value for later use
-        self.mask = mask
 
         if mask is not None:
             assert K.ndim(mask) == 2, 'Input mask to CRF must have dim 2 if not None'
 
-        logits = self._dense_layer(input)
+        # remember this value for later use
+        self.mask = mask
+
+        logits = self._dense_layer(inputs)
 
         # appending boundary probability info
         if self.use_boundary:
@@ -135,7 +158,7 @@ class CRF(Layer):
         # remember this value for later use
         self.logits = logits
 
-        nwords = self._get_nwords(input, mask)
+        nwords = self._get_nwords(inputs, mask)
         print("nwords: {}".format(nwords))
 
         # remember this value for later use
@@ -212,8 +235,11 @@ class CRF(Layer):
             mask = K.expand_dims(K.cast(mask, K.floatx()), axis=-1)
             start_mask = K.cast(K.greater(mask, self.shift_right(mask)), K.floatx())
 
+            # original code:
+            # end_mask = K.cast(K.greater(self.shift_left(mask), mask), K.floatx())
             # TODO: is this a bug? should be K.greater(mask, self.shift_left(mask)) ?
-            end_mask = K.cast(K.greater(self.shift_left(mask), mask), K.floatx())
+            # patch applied
+            end_mask = K.cast(K.greater(mask, self.shift_left(mask)), K.floatx())
             energy = energy + start_mask * start
             energy = energy + end_mask * end
         return energy
@@ -261,7 +287,6 @@ class CRF(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
     def compute_output_shape(self, input_shape):
-        # output_shape = input_shape[:2] + (self.units,)
         output_shape = input_shape[:2]
         return output_shape
 
