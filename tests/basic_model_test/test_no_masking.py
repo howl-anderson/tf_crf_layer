@@ -4,9 +4,9 @@ from tensorflow.python.keras import Sequential
 from tensorflow.python.keras.layers import Embedding
 from tensorflow.python.keras.models import load_model
 
-from layer import CRF
-from loss import crf_loss
-from tests.common import get_random_data
+from tf_crf_layer.layer import CRF
+from tf_crf_layer.loss import crf_loss
+from tf_crf_layer.tests.common import get_random_data
 
 
 def test_no_masking():

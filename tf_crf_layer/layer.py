@@ -3,6 +3,9 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import initializers, regularizers, constraints, \
     activations
 from tensorflow.python.keras.layers import InputSpec, Layer
+from tensorflow.contrib.crf import crf_decode, crf_log_likelihood
+
+from tf_crf_layer import keras_utils
 
 """
 TODO
@@ -20,6 +23,7 @@ TODO
 """
 
 
+@keras_utils.register_keras_custom_object
 class CRF(Layer):
     def __init__(self, units,
                  learn_mode='join',
@@ -224,7 +228,6 @@ class CRF(Layer):
         start = expend_scalar_to_3d(start)
         end = expend_scalar_to_3d(end)
         if mask is None:
-            # TODO: maybe using * better than + ?
             energy = K.concatenate(
                 [energy[:, :1, :] + start, energy[:, 1:, :]],
                 axis=1)
@@ -245,7 +248,7 @@ class CRF(Layer):
         return energy
 
     def get_viterbi_decoding(self, input_energy, nwords):
-        pred_ids, _ = tf.contrib.crf.crf_decode(input_energy,
+        pred_ids, _ = crf_decode(input_energy,
                                                 self.chain_kernel, nwords)
 
         return pred_ids
@@ -301,7 +304,7 @@ class CRF(Layer):
     def get_decode_result(self, logits, mask):
         nwords = K.cast(K.sum(mask, 1), tf.int64)
 
-        pred_ids, _ = tf.contrib.crf.crf_decode(logits, self.chain_kernel,
+        pred_ids, _ = crf_decode(logits, self.chain_kernel,
                                                 nwords)
 
         return pred_ids
@@ -316,7 +319,7 @@ class CRF(Layer):
         nwords = K.cast(nwords, tf.int32)
         self.chain_kernel = K.cast(self.chain_kernel, tf.float32)
 
-        log_likelihood, _ = tf.contrib.crf.crf_log_likelihood(y_preds, y_true,
+        log_likelihood, _ = crf_log_likelihood(y_preds, y_true,
                                                               nwords,
                                                               self.chain_kernel)
 
@@ -325,10 +328,12 @@ class CRF(Layer):
     def get_accuracy(self, y_true, y_pred):
         judge = K.cast(K.equal(y_pred, y_true), K.floatx())
         if self.mask is None:
-            return K.mean(judge)
+            result = K.mean(judge)
+            return result
         else:
             mask = K.cast(self.mask, K.floatx())
-            return K.sum(judge * mask) / K.sum(mask)
+            result = K.sum(judge * mask) / K.sum(mask)
+            return result
 
     def _dense_layer(self, input_):
         # TODO: can simply just use tf.keras.layers.dense ?

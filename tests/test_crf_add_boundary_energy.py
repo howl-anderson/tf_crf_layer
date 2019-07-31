@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from layer import CRF
+from tf_crf_layer.layer import CRF
 
 
 def test_crf_add_boundary_energy_with_no_mask():

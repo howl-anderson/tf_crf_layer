@@ -2,9 +2,9 @@ import numpy as np
 from tensorflow.python.keras import Sequential
 from tensorflow.python.keras.layers import Embedding
 
-from layer import CRF
-from loss import crf_loss
-from metrics import crf_viterbi_accuracy
+from tf_crf_layer.layer import CRF
+from tf_crf_layer.loss import crf_loss
+from tf_crf_layer.metrics import crf_viterbi_accuracy
 from tests.common import get_random_data
 
 

@@ -16,8 +16,10 @@ def _get_accuracy(y_true, y_pred, mask, sparse_target=False):
 
 
 def crf_viterbi_accuracy(y_true, y_pred):
-    '''Use Viterbi algorithm to get best path, and compute its accuracy.
-    `y_pred` must be an output from CRF.'''
+    """
+    Use Viterbi algorithm to get best path, and compute its accuracy.
+    `y_pred` must be an output from CRF.
+    """
     crf, idx = y_pred._keras_history[:2]
     # X = crf._inbound_nodes[idx].input_tensors[0]
     # mask = crf._inbound_nodes[idx].input_masks[0]
@@ -27,8 +29,10 @@ def crf_viterbi_accuracy(y_true, y_pred):
 
 
 def crf_marginal_accuracy(y_true, y_pred):
-    '''Use time-wise marginal argmax as prediction.
-    `y_pred` must be an output from CRF with `learn_mode="marginal"`.'''
+    """
+    Use time-wise marginal argmax as prediction.
+    `y_pred` must be an output from CRF with `learn_mode="marginal"`.
+    """
     crf, idx = y_pred._keras_history[:2]
     X = crf._inbound_nodes[idx].input_tensors[0]
     mask = crf._inbound_nodes[idx].input_masks[0]
@@ -37,9 +41,28 @@ def crf_marginal_accuracy(y_true, y_pred):
 
 
 def crf_accuracy(y_true, y_pred):
-    '''Ge default accuracy based on CRF `test_mode`.'''
+    """
+    Ge default accuracy based on CRF `test_mode`.
+    """
     crf, idx = y_pred._keras_history[:2]
     if crf.test_mode == 'viterbi':
         return crf_viterbi_accuracy(y_true, y_pred)
     else:
         return crf_marginal_accuracy(y_true, y_pred)
+
+
+from tensorflow.python.keras.metrics import MeanMetricWrapper
+
+
+class SequenceAccuracy(MeanMetricWrapper):
+  def __init__(self, name='sequence_accuracy', dtype=None):
+    """Creates a `CategoricalAccuracy` instance.
+    Args:
+      name: (Optional) string name of the metric instance.
+      dtype: (Optional) data type of the metric result.
+    """
+    super(SequenceAccuracy, self).__init__(
+        self.smart_categorical_accuracy, name, dtype=dtype)
+
+  def smart_categorical_accuracy(self, y_true, y_pred):
+      pass

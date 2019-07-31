@@ -1,5 +1,8 @@
+import tensorflow as tf
 from tensorflow.python.keras.losses import sparse_categorical_crossentropy, \
     categorical_crossentropy
+
+from tf_crf_layer import keras_utils
 
 
 def crf_nll(y_true, y_pred):

@@ -10,9 +10,9 @@ from collections import Counter
 
 from tensorflow.python.keras.models import Sequential
 from tensorflow.python.keras.layers import Embedding, Bidirectional, LSTM
-from layer import CRF
-from loss import crf_loss
-from metrics import crf_viterbi_accuracy
+from tf_crf_layer.layer import CRF
+from tf_crf_layer.loss import crf_loss
+from tf_crf_layer.metrics import crf_accuracy
 from examples.datasets import conll2000
 
 EPOCHS = 10
@@ -78,7 +78,8 @@ def main():
     model.summary()
 
     # The default `crf_loss` for `learn_mode='join'` is negative log likelihood.
-    model.compile('adam', loss=crf_loss, metrics=[crf_viterbi_accuracy])
+    # model.compile('adam', loss=crf_loss, metrics=[CategoricalAccuracy()])
+    model.compile('adam', loss=crf_loss, metrics=[crf_accuracy])
     model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
 
     # test_y_pred = model.predict(test_x).argmax(-1)[test_x > 0]
@@ -102,7 +103,8 @@ def main():
     model.add(crf)
     model.summary()
 
-    model.compile('adam', loss=crf_loss, metrics=[crf_viterbi_accuracy])
+    # model.compile('adam', loss=crf_loss, metrics=[CategoricalAccuracy()])
+    model.compile('adam', loss=crf_loss, metrics=[crf_accuracy])
     model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
 
     test_y_pred = model.predict(test_x)[test_x > 0]
