@@ -32,11 +32,13 @@ class CRF(Layer):
                  sparse_target=False,
                  use_boundary=False,
                  use_bias=True,
+                 use_kernel=True,
                  activation='linear',
                  kernel_initializer='glorot_uniform',
                  chain_initializer='orthogonal',
                  bias_initializer='zeros',
-                 boundary_initializer='zeros',
+                 left_boundary_initializer='zeros',
+                 right_boundary_initializer='zeros',
                  kernel_regularizer=None,
                  chain_regularizer=None,
                  boundary_regularizer=None,
@@ -67,12 +69,14 @@ class CRF(Layer):
         self.sparse_target = sparse_target
         self.use_boundary = use_boundary
         self.use_bias = use_bias
+        self.use_kernel = use_kernel
 
         self.activation = activations.get(activation)
 
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.chain_initializer = initializers.get(chain_initializer)
-        self.boundary_initializer = initializers.get(boundary_initializer)
+        self.left_boundary_initializer = initializers.get(left_boundary_initializer)
+        self.right_boundary_initializer = initializers.get(right_boundary_initializer)
         self.bias_initializer = initializers.get(bias_initializer)
 
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
@@ -102,9 +106,6 @@ class CRF(Layer):
         self.right_boundary = None
         self.transition_constraint_mask = None
 
-        # variable used by unit test
-        self._debug_use_dense_layer = True
-
     def build(self, input_shape):
         input_shape = tuple(tf.TensorShape(input_shape).as_list())
         self.input_spec = [InputSpec(shape=input_shape)]
@@ -119,12 +120,13 @@ class CRF(Layer):
             trainable=False
         )
 
-        # weights that mapping arbitrary tensor to correct shape
-        self.kernel = self.add_weight(shape=(self.input_dim, self.units),
-                                      name='kernel',
-                                      initializer=self.kernel_initializer,
-                                      regularizer=self.kernel_regularizer,
-                                      constraint=self.kernel_constraint)
+        if self.use_kernel:
+            # weights that mapping arbitrary tensor to correct shape
+            self.kernel = self.add_weight(shape=(self.input_dim, self.units),
+                                          name='kernel',
+                                          initializer=self.kernel_initializer,
+                                          regularizer=self.kernel_regularizer,
+                                          constraint=self.kernel_constraint)
 
         # weights that work as transfer probability of each tags
         self.chain_kernel = self.add_weight(shape=(self.units, self.units),
@@ -134,7 +136,7 @@ class CRF(Layer):
                                             constraint=self.chain_constraint)
 
         # bias that works with self.kernel
-        if self.use_bias:
+        if self.use_kernel and self.use_bias:
             self.bias = self.add_weight(shape=(self.units,),
                                         name='bias',
                                         initializer=self.bias_initializer,
@@ -147,12 +149,12 @@ class CRF(Layer):
         if self.use_boundary:
             self.left_boundary = self.add_weight(shape=(self.units,),
                                                  name='left_boundary',
-                                                 initializer=self.boundary_initializer,
+                                                 initializer=self.left_boundary_initializer,
                                                  regularizer=self.boundary_regularizer,
                                                  constraint=self.boundary_constraint)
             self.right_boundary = self.add_weight(shape=(self.units,),
                                                   name='right_boundary',
-                                                  initializer=self.boundary_initializer,
+                                                  initializer=self.right_boundary_initializer,
                                                   regularizer=self.boundary_regularizer,
                                                   constraint=self.boundary_constraint)
 
@@ -160,6 +162,7 @@ class CRF(Layer):
         super(CRF, self).build(input_shape)
 
     def call(self, inputs, mask=None, **kwargs):
+        # inputs: Tensor(shape(?, ?, ?))
         # mask: Tensor(shape=(?, ?), dtype=bool) or None
 
         if mask is not None:
@@ -266,10 +269,9 @@ class CRF(Layer):
 
     def compute_effective_chain_kernel(self):
         if self.transition_constraint:
-            constrained_transitions = (
-                    self.chain_kernel * self.transition_constraint_mask[:self.units, :self.units] +
-                    -10000.0 * (1 - self.transition_constraint_mask[:self.units, :self.units])
-            )
+            chain_kernel_mask = self.transition_constraint_mask[:self.units, :self.units]
+            constrained_transitions = self.chain_kernel * chain_kernel_mask + -10000.0 * (1 - chain_kernel_mask)
+
             return constrained_transitions
 
         return self.chain_kernel
@@ -291,13 +293,16 @@ class CRF(Layer):
             'test_mode': self.test_mode,
             'use_boundary': self.use_boundary,
             'use_bias': self.use_bias,
+            'use_kernel': self.use_kernel,
             'sparse_target': self.sparse_target,
             'kernel_initializer': initializers.serialize(
                 self.kernel_initializer),
             'chain_initializer': initializers.serialize(
                 self.chain_initializer),
-            'boundary_initializer': initializers.serialize(
-                self.boundary_initializer),
+            'left_boundary_initializer': initializers.serialize(
+                self.left_boundary_initializer),
+            'right_boundary_initializer': initializers.serialize(
+                self.right_boundary_initializer),
             'bias_initializer': initializers.serialize(self.bias_initializer),
             'activation': activations.serialize(self.activation),
             'kernel_regularizer': regularizers.serialize(
@@ -313,7 +318,9 @@ class CRF(Layer):
                 self.boundary_constraint),
             'bias_constraint': constraints.serialize(self.bias_constraint),
             'input_dim': self.input_dim,
-            'unroll': self.unroll}
+            'unroll': self.unroll,
+            'transition_constraint': self.transition_constraint
+        }
         base_config = super(CRF, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
@@ -365,18 +372,18 @@ class CRF(Layer):
 
     def _dense_layer(self, input_):
         # TODO: can simply just use tf.keras.layers.dense ?
-        if self._debug_use_dense_layer:
+        if self.use_kernel:
             return self.activation(
                 K.dot(input_, self.kernel) + self.bias)
 
         return input_
 
     def get_transition_constraint_mask(self):
-        if self.transition_constraint is None:
+        if not self.transition_constraint:
             # All transitions are valid.
             constraint_mask = np.ones([self.units + 2, self.units + 2])
         else:
-            constraint_mask = np.ones([self.units + 2, self.units + 2])
+            constraint_mask = np.zeros([self.units + 2, self.units + 2])
             for i, j in self.transition_constraint:
                 constraint_mask[i, j] = 1.0
 
