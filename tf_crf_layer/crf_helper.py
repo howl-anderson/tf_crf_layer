@@ -1,10 +1,14 @@
 """
 Conditional random field
 """
+from collections import namedtuple
 from typing import List, Tuple, Dict
 
 
 from tf_crf_layer.exceptions import ConfigurationError
+
+ConstraintType = namedtuple('ConstraintType', ["BIO", "IOB1", "BIOUL", "BMES"])
+constraint_type = ConstraintType("BIO", "IOB1", "BIOUL", "BMES")
 
 
 def allowed_transitions(constraint_type: str, labels: Dict[int, str]) -> List[Tuple[int, int]]:
