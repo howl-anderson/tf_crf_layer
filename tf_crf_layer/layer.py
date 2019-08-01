@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import initializers, regularizers, constraints, \
@@ -46,6 +47,7 @@ class CRF(Layer):
                  bias_constraint=None,
                  input_dim=None,
                  unroll=False,
+                 transition_constraint=None,
                  **kwargs):
         super(CRF, self).__init__(**kwargs)
 
@@ -85,6 +87,7 @@ class CRF(Layer):
 
         self.input_dim = input_dim
         self.unroll = unroll
+        self.transition_constraint = transition_constraint
 
         # value remembered for loss/metrics function
         self.logits = None
@@ -97,11 +100,21 @@ class CRF(Layer):
         self.bias = None
         self.left_boundary = None
         self.right_boundary = None
+        self.transition_constraint_mask = None
 
     def build(self, input_shape):
         input_shape = tuple(tf.TensorShape(input_shape).as_list())
         self.input_spec = [InputSpec(shape=input_shape)]
         self.input_dim = input_shape[-1]
+
+        self.transition_constraint_mask = self.add_weight(
+            shape=(self.units + 2, self.units + 2),
+            name='transition_constraint_mask',
+            initializer=initializers.Constant(
+                self.get_transition_constraint_mask()
+            ),
+            trainable=False
+        )
 
         # weights that mapping arbitrary tensor to correct shape
         self.kernel = self.add_weight(shape=(self.input_dim, self.units),
@@ -156,8 +169,7 @@ class CRF(Layer):
 
         # appending boundary probability info
         if self.use_boundary:
-            logits = self.add_boundary_energy(
-                logits, mask, self.left_boundary, self.right_boundary)
+            logits = self.add_boundary_energy(logits, mask)
 
         # remember this value for later use
         self.logits = logits
@@ -220,10 +232,12 @@ class CRF(Layer):
         assert offset > 0
         return K.concatenate([K.zeros_like(x[:, :offset]), x[:, :-offset]], axis=1)
 
-    def add_boundary_energy(self, energy, mask, start, end):
+    def add_boundary_energy(self, energy, mask):
         def expend_scalar_to_3d(x):
             # expend tensor from shape (x, ) to (1, 1, x)
             return K.expand_dims(K.expand_dims(x, 0), 0)
+
+        start, end = self.compute_effective_boundary()
 
         start = expend_scalar_to_3d(start)
         end = expend_scalar_to_3d(end)
@@ -247,9 +261,20 @@ class CRF(Layer):
             energy = energy + end_mask * end
         return energy
 
+    def compute_effective_chain_kernel(self):
+        if self.transition_constraint:
+            constrained_transitions = (
+                    self.chain_kernel * self.transition_constraint_mask[:self.units, :self.units] +
+                    -10000.0 * (1 - self.transition_constraint_mask[:self.units, :self.units])
+            )
+            return constrained_transitions
+
+        return self.chain_kernel
+
     def get_viterbi_decoding(self, input_energy, nwords):
-        pred_ids, _ = crf_decode(input_energy,
-                                                self.chain_kernel, nwords)
+        chain_kernel = self.compute_effective_chain_kernel()
+
+        pred_ids, _ = crf_decode(input_energy, chain_kernel, nwords)
 
         return pred_ids
 
@@ -301,13 +326,13 @@ class CRF(Layer):
 
         return mask
 
-    def get_decode_result(self, logits, mask):
-        nwords = K.cast(K.sum(mask, 1), tf.int64)
-
-        pred_ids, _ = crf_decode(logits, self.chain_kernel,
-                                                nwords)
-
-        return pred_ids
+    # def get_decode_result(self, logits, mask):
+    #     nwords = K.cast(K.sum(mask, 1), tf.int64)
+    #
+    #     pred_ids, _ = crf_decode(logits, self.chain_kernel,
+    #                                             nwords)
+    #
+    #     return pred_ids
 
     def get_negative_log_likelihood(self, y_true):
         y_preds = self.logits
@@ -339,3 +364,32 @@ class CRF(Layer):
         # TODO: can simply just use tf.keras.layers.dense ?
         return self.activation(
             K.dot(input_, self.kernel) + self.bias)
+
+    def get_transition_constraint_mask(self):
+        if self.transition_constraint is None:
+            # All transitions are valid.
+            constraint_mask = np.ones([self.units + 2, self.units + 2])
+        else:
+            constraint_mask = np.ones([self.units + 2, self.units + 2])
+            for i, j in self.transition_constraint:
+                constraint_mask[i, j] = 1.0
+
+        return constraint_mask
+
+    def compute_effective_boundary(self):
+        if self.transition_constraint:
+            start_tag = self.units
+            end_tag = self.units + 1
+
+            left_boundary = (
+                    self.left_boundary * self.transition_constraint_mask[start_tag, :self.units] +
+                    -10000.0 * (1 - self.transition_constraint_mask[start_tag, :self.units])
+            )
+            right_boundary = (
+                    self.left_boundary * self.transition_constraint_mask[:self.units, end_tag] +
+                    -10000.0 * (1 - self.transition_constraint_mask[:self.units, end_tag])
+            )
+
+            return left_boundary, right_boundary
+
+        return self.left_boundary, self.right_boundary

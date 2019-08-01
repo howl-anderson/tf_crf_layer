@@ -15,7 +15,7 @@ from tf_crf_layer.loss import crf_loss
 from tf_crf_layer.metrics import crf_accuracy
 from examples.datasets import conll2000
 
-EPOCHS = 10
+EPOCHS = 2
 EMBED_DIM = 200
 BiRNN_UNITS = 200
 
