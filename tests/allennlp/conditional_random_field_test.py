@@ -8,6 +8,7 @@ import numpy as np
 from pytest import approx, raises
 from tensorflow.python.keras import initializers, Sequential
 from tensorflow.python.keras import layers
+import tensorflow as tf
 
 from tf_crf_layer.layer import CRF
 from tf_crf_layer.crf_helper import allowed_transitions
@@ -20,6 +21,7 @@ from tests.MockedMasking import MockMasking
 class TestConditionalRandomField(unittest.TestCase):
     def setUp(self):
         super().setUp()
+
         self.logits = np.array([
                 [[0, 0, .5, .5, .2], [0, 0, .3, .3, .1], [0, 0, .9, 10, 1]],
                 [[0, 0, .2, .5, .2], [0, 0, 3, .3, .1], [0, 0, .9, 1, 1]],
@@ -117,44 +119,6 @@ class TestConditionalRandomField(unittest.TestCase):
         unbatched_log_likelihood = -2 * log_likelihood
         assert expected_log_likelihood == approx(unbatched_log_likelihood)
 
-
-    # def test_forward_works_with_mask(self):
-    #     # Use a non-trivial mask
-    #     mask = torch.LongTensor([
-    #             [1, 1, 1],
-    #             [1, 1, 0]
-    #     ])
-    #
-    #     log_likelihood = self.crf(self.logits, self.tags, mask).item()
-    #
-    #     def compute_log_likelihood():
-    #         # Now compute the log-likelihood manually
-    #         manual_log_likelihood = 0.0
-    #
-    #         # For each instance, manually compute the numerator
-    #         #   (which is just the score for the logits and actual tags)
-    #         # and the denominator
-    #         #   (which is the log-sum-exp of the scores for the logits across all possible tags)
-    #         for logits_i, tags_i, mask_i in zip(self.logits, self.tags, mask):
-    #             # Find the sequence length for this input and only look at that much of each sequence.
-    #             sequence_length = torch.sum(mask_i.detach())
-    #             logits_i = logits_i.data[:sequence_length]
-    #             tags_i = tags_i.data[:sequence_length]
-    #
-    #             numerator = self.score(logits_i, tags_i)
-    #             all_scores = [self.score(logits_i, tags_j)
-    #                           for tags_j in itertools.product(range(5), repeat=sequence_length)]
-    #             denominator = math.log(sum(math.exp(score) for score in all_scores))
-    #             # And include them in the manual calculation.
-    #             manual_log_likelihood += numerator - denominator
-    #
-    #         return manual_log_likelihood
-    #
-    #     exepected_log_likelihood = compute_log_likelihood()
-    #
-    #     # The manually computed log likelihood should equal the result of crf.forward.
-    #     assert exepected_log_likelihood == approx(log_likelihood)
-
     def test_forward_works_with_mask(self):
         # Use a non-trivial mask
         mask = np.array([
@@ -181,9 +145,9 @@ class TestConditionalRandomField(unittest.TestCase):
             #   (which is the log-sum-exp of the scores for the logits across all possible tags)
             for logits_i, tags_i, mask_i in zip(self.logits, self.tags, mask):
                 # Find the sequence length for this input and only look at that much of each sequence.
-                sequence_length = torch.sum(mask_i.detach())
-                logits_i = logits_i.data[:sequence_length]
-                tags_i = tags_i.data[:sequence_length]
+                sequence_length = np.sum(mask_i)
+                logits_i = logits_i[:sequence_length]
+                tags_i = tags_i[:sequence_length]
 
                 numerator = self.score(logits_i, tags_i)
                 all_scores = [self.score(logits_i, tags_j)
@@ -197,20 +161,26 @@ class TestConditionalRandomField(unittest.TestCase):
         exepected_log_likelihood = compute_log_likelihood()
 
         # The manually computed log likelihood should equal the result of crf.forward.
-        assert exepected_log_likelihood == approx(log_likelihood)
+        unbatched_log_likelihood = -2 * log_likelihood
+
+        assert exepected_log_likelihood == approx(unbatched_log_likelihood)
 
 
     def test_viterbi_tags(self):
-        mask = torch.LongTensor([
+        mask = np.array([
                 [1, 1, 1],
                 [1, 1, 0]
         ])
 
-        viterbi_path = self.crf.viterbi_tags(self.logits, mask)
+        model = Sequential()
+        model.add(layers.Input(shape=(3, 5)))
+        model.add(MockMasking(mask_shape=(2, 3), mask_value=mask))
+        model.add(self.crf)
+        model.compile('adam', loss=crf_loss)
+        model.summary()
 
         # Separate the tags and scores.
-        viterbi_tags = [x for x, y in viterbi_path]
-        viterbi_scores = [y for x, y in viterbi_path]
+        viterbi_tags = model.predict(self.logits)
 
         # Check that the viterbi tags are what I think they should be.
         assert viterbi_tags == [
@@ -225,7 +195,7 @@ class TestConditionalRandomField(unittest.TestCase):
         best_scores = []
 
         for logit, mas in zip(self.logits, mask):
-            sequence_length = torch.sum(mas.detach())
+            sequence_length = np.sum(mas.detach())
             most_likely, most_likelihood = None, -float('inf')
             for tags in itertools.product(range(5), repeat=sequence_length):
                 score = self.score(logit.data, tags)
@@ -236,7 +206,6 @@ class TestConditionalRandomField(unittest.TestCase):
             best_scores.append(most_likelihood)
 
         assert viterbi_tags == most_likely_tags
-        assert viterbi_scores == best_scores
 
     def test_constrained_viterbi_tags(self):
         constraints = {(0, 0), (0, 1),
