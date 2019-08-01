@@ -102,6 +102,9 @@ class CRF(Layer):
         self.right_boundary = None
         self.transition_constraint_mask = None
 
+        # variable used by unit test
+        self._debug_use_dense_layer = True
+
     def build(self, input_shape):
         input_shape = tuple(tf.TensorShape(input_shape).as_list())
         self.input_spec = [InputSpec(shape=input_shape)]
@@ -362,8 +365,11 @@ class CRF(Layer):
 
     def _dense_layer(self, input_):
         # TODO: can simply just use tf.keras.layers.dense ?
-        return self.activation(
-            K.dot(input_, self.kernel) + self.bias)
+        if self._debug_use_dense_layer:
+            return self.activation(
+                K.dot(input_, self.kernel) + self.bias)
+
+        return input_
 
     def get_transition_constraint_mask(self):
         if self.transition_constraint is None:
