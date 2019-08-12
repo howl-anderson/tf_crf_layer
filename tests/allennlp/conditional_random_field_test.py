@@ -47,6 +47,7 @@ class TestConditionalRandomField(unittest.TestCase):
             units=5,
             use_kernel=False,  # disable kernel transform
             chain_initializer=initializers.Constant(self.transitions),
+            use_boundary=True,
             left_boundary_initializer=initializers.Constant(self.transitions_from_start),
             right_boundary_initializer=initializers.Constant(self.transitions_to_end)
         )
@@ -183,10 +184,14 @@ class TestConditionalRandomField(unittest.TestCase):
         viterbi_tags = model.predict(self.logits)
 
         # Check that the viterbi tags are what I think they should be.
-        assert viterbi_tags == [
+
+        expected_viterbi_tags = [
                 [2, 4, 3],
-                [4, 2]
+                [4, 2, 0]
         ]
+
+        # test assert
+        np.testing.assert_equal(viterbi_tags, expected_viterbi_tags)
 
         # We can also iterate over all possible tag sequences and use self.score
         # to check the likelihood of each. The most likely sequence should be the
@@ -195,17 +200,25 @@ class TestConditionalRandomField(unittest.TestCase):
         best_scores = []
 
         for logit, mas in zip(self.logits, mask):
-            sequence_length = np.sum(mas.detach())
+            sequence_length = np.sum(mas)
             most_likely, most_likelihood = None, -float('inf')
             for tags in itertools.product(range(5), repeat=sequence_length):
-                score = self.score(logit.data, tags)
+                score = self.score(logit, tags)
                 if score > most_likelihood:
+                    # padding tags to sequence length
+                    tag_len_diff = 3 - len(tags)
+                    if tag_len_diff:
+                        tags = list(tags) + [0] * tag_len_diff
+
                     most_likely, most_likelihood = tags, score
             # Convert tuple to list; otherwise == complains.
             most_likely_tags.append(list(most_likely))
             best_scores.append(most_likelihood)
 
-        assert viterbi_tags == most_likely_tags
+        # test assert
+        np.testing.assert_equal(viterbi_tags, most_likely_tags)
+        # No such viterbi score from current CRF implement
+        # assert viterbi_scores == best_scores
 
     def test_constrained_viterbi_tags(self):
         constraints = {(0, 0), (0, 1),
@@ -229,6 +242,7 @@ class TestConditionalRandomField(unittest.TestCase):
             units=5,
             use_kernel=False,  # disable kernel transform
             chain_initializer=initializers.Constant(self.transitions),
+            use_boundary=True,
             left_boundary_initializer=initializers.Constant(self.transitions_from_start),
             right_boundary_initializer=initializers.Constant(self.transitions_to_end),
             transition_constraint=constraints
@@ -260,4 +274,5 @@ class TestConditionalRandomField(unittest.TestCase):
         #     [2, 3, 0]
         # ]
 
-        assert (viterbi_tags == expected_tags).all()
+        # test assert
+        np.testing.assert_equal(viterbi_tags, expected_tags)
