@@ -40,7 +40,7 @@ class TestDynamicTransitionConstraint(unittest.TestCase):
 
         self.transition_constraint_matrix = np.array(
             [
-                [1] * 30 + [0] * 19,  # [1] * ((5 + 2) * (5 + 2)),
+                [1] * 28 + [0] * 21,  # [1] * ((5 + 2) * (5 + 2)),
                 [1] * ((5 + 2) * (5 + 2))
             ]
         )
@@ -62,12 +62,6 @@ class TestDynamicTransitionConstraint(unittest.TestCase):
             transition_constraint_matrix=self.transition_constraint_matrix
         )
 
-        self.np_crf = NPCRF(
-            self.transitions,
-            self.transitions_from_start,
-            self.transitions_to_end
-        )
-
     def test_decode_without_mask(self):
         raw_logits_input = layers.Input(shape=(3, 5))
         logits_input = raw_logits_input
@@ -81,18 +75,29 @@ class TestDynamicTransitionConstraint(unittest.TestCase):
         out = model.predict([self.logits, self.dynamic_constraint])
 
         # compute expected value
-        rolled_mask = self.dynamic_constraint * self.transition_constraint_matrix
-        mask = np.sum(rolled_mask, axis=1)
-        expect_decode = self.np_crf.viterbi_decode(self.logits, mask)
+        # reshape: (B, M) --> (B, M, 1)
+        expand_dynamic_constraint = np.expand_dims(self.dynamic_constraint, -1)
+        unpool_constraint = expand_dynamic_constraint * self.transition_constraint_matrix
+        rolled_constraint = np.sum(unpool_constraint, axis=1)
+        constraint = np.reshape(rolled_constraint, (-1, 7, 7))
+
+        np_crf = NPCRF(
+            5,
+            self.transitions,
+            self.transitions_from_start,
+            self.transitions_to_end,
+            dynamic_transition_constraint=constraint
+        )
+
+        expect_decode = np_crf.viterbi_decode(self.logits)
 
         assert out.shape == (2, 3)
-        print(out)
+        np.testing.assert_equal(out, expect_decode)
 
     def test_decode_with_mask(self):
         raw_logits_input = layers.Input(shape=(3, 5))
-        # mask_input = MockMasking(mask_shape=(2, 3), mask_value=mask)
-        # logits_input = mask_input(raw_logits_input)
-        logits_input = raw_logits_input
+        mask_input = MockMasking(mask_shape=(2, 3), mask_value=self.mask)
+        logits_input = mask_input(raw_logits_input)
         dynamic_constraint_input = layers.Input(shape=(2,))
 
         output_layer = self.crf([logits_input, dynamic_constraint_input])
@@ -102,5 +107,22 @@ class TestDynamicTransitionConstraint(unittest.TestCase):
 
         out = model.predict([self.logits, self.dynamic_constraint])
 
+        # compute expected value
+        # reshape: (B, M) --> (B, M, 1)
+        expand_dynamic_constraint = np.expand_dims(self.dynamic_constraint, -1)
+        unpool_constraint = expand_dynamic_constraint * self.transition_constraint_matrix
+        rolled_constraint = np.sum(unpool_constraint, axis=1)
+        constraint = np.reshape(rolled_constraint, (-1, 7, 7))
+
+        np_crf = NPCRF(
+            5,
+            self.transitions,
+            self.transitions_from_start,
+            self.transitions_to_end,
+            dynamic_transition_constraint=constraint
+        )
+
+        expect_decode = np_crf.viterbi_decode(self.logits, self.mask)
+
         assert out.shape == (2, 3)
-        print(out)
+        np.testing.assert_equal(out, expect_decode)

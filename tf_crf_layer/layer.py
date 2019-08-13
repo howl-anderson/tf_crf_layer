@@ -130,6 +130,10 @@ class CRF(Layer):
         self.transition_constraint_matrix_mask = None
         self.dynamic_transition_constraint = None
 
+        # for debug
+        self.dynamic_transition_constraint_input = None
+        self.inputs = None
+
     def build(self, input_shape):
         if isinstance(input_shape, list):
             input_shape = input_shape[0]
@@ -205,11 +209,13 @@ class CRF(Layer):
         dynamic_transition_constraint_indicator = None
 
         if isinstance(inputs, list):
-            # assert len(inputs) == 2, "Input must have two input tensors"
-            pass
+            assert len(inputs) == 2, "Input must have two input tensors"
 
             dynamic_transition_constraint_indicator = inputs[1]
+            self.dynamic_transition_constraint_input = dynamic_transition_constraint_indicator
+
             inputs = inputs[0]
+            self.inputs = inputs
 
         if isinstance(mask, list):
             print(mask)
@@ -314,12 +320,29 @@ class CRF(Layer):
         :return:
         """
 
+        # sess = K.get_session()
+        # logits = np.array([
+        #     [[0, 0, .5, .5, .2], [0, 0, .3, .3, .1], [0, 0, .9, 10, 1]],
+        #     [[0, 0, .2, .5, .2], [0, 0, 3, .3, .1], [0, 0, .9, 1, 1]],
+        # ])
+        # result = sess.run(energy, feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]), self.inputs: logits})
+
         start, end = self.compute_effective_boundary()
+
+        # result = sess.run([start, end], feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]), self.inputs: logits})
+        #
+        # result = sess.run([energy[:, :1, :], energy[:, 1:, :]], feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]),
+        #                                            self.inputs: logits})
 
         if mask is None:
             energy = K.concatenate(
                 [energy[:, :1, :] + start, energy[:, 1:, :]],
                 axis=1)
+
+            result = sess.run(energy,
+                              feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]),
+                                         self.inputs: logits})
+
             energy = K.concatenate(
                 [energy[:, :-1, :], energy[:, -1:, :] + end],
                 axis=1)
@@ -334,6 +357,9 @@ class CRF(Layer):
             end_mask = K.cast(K.greater(mask, self.shift_left(mask)), K.floatx())
             energy = energy + start_mask * start
             energy = energy + end_mask * end
+
+        # result = sess.run([start, end], feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]), self.inputs: logits})
+
         return energy
 
     def compute_effective_chain_kernel(self):
@@ -491,7 +517,7 @@ class CRF(Layer):
                     -10000.0 * (1 - self.transition_constraint_mask[start_tag, :self.units])
             )
             right_boundary = (
-                    self.left_boundary * self.transition_constraint_mask[:self.units, end_tag] +
+                    self.right_boundary * self.transition_constraint_mask[:self.units, end_tag] +
                     -10000.0 * (1 - self.transition_constraint_mask[:self.units, end_tag])
             )
 
@@ -502,7 +528,8 @@ class CRF(Layer):
             end_tag = self.units + 1
 
             # shape: (B, 1, n)
-            left_dynamic_constraint = self.dynamic_transition_constraint[:, start_tag, :self.units]
+            # left_dynamic_constraint = self.dynamic_transition_constraint[:, start_tag, :self.units]  # shape: (B, n)
+            left_dynamic_constraint = tf.slice(self.dynamic_transition_constraint, [0, start_tag, 0], [-1, 1, self.units])  # shape: (B, 1, n)
 
             # shape: (B, 1, n)
             left_boundary = (
@@ -511,11 +538,14 @@ class CRF(Layer):
             )
 
             # shape: (B, 1, n)
-            right_dynamic_constraint = self.dynamic_transition_constraint[:, :self.units, end_tag]
+            # right_dynamic_constraint = self.dynamic_transition_constraint[:, :self.units, end_tag]  # shape: (B, n)
+            raw_right_dynamic_constraint = tf.slice(self.dynamic_transition_constraint, [0, 0, end_tag], [-1, self.units, 1])  # shape: (B, n, 1)
+            right_dynamic_constraint = tf.transpose(raw_right_dynamic_constraint, perm=[0, 2, 1])  # shape: (B, 1, n)
+
 
             # shape: (B, 1, n)
             right_boundary = (
-                self.left_boundary * right_dynamic_constraint +
+                self.right_boundary * right_dynamic_constraint +
                 -10000.0 * (1 - right_dynamic_constraint)
             )
 
