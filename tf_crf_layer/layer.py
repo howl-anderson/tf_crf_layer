@@ -4,7 +4,8 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import initializers, regularizers, constraints, \
     activations
 from tensorflow.python.keras.layers import InputSpec, Layer
-from tensorflow.contrib.crf import crf_decode, crf_log_likelihood
+from tensorflow.contrib.crf import crf_log_likelihood
+from tf_crf_layer.crf import crf_decode
 
 from tf_crf_layer import keras_utils
 
@@ -22,6 +23,23 @@ TODO
 
 * not test yet if CRF is the first layer
 """
+
+
+# for future reference:
+# B: batch size
+# M: intent number
+# N: n * n, where n is the tag set number
+# T: sequence length
+# F: feature number
+
+
+def add_pooling_strategies(x):
+    return K.sum(x, axis=1, keepdims=False)
+
+
+pooling_strategies = {
+    'add': add_pooling_strategies
+}
 
 
 @keras_utils.register_keras_custom_object
@@ -50,6 +68,8 @@ class CRF(Layer):
                  input_dim=None,
                  unroll=False,
                  transition_constraint=None,
+                 transition_constraint_matrix=None,  # shape: (M, N)
+                 pooling_strategy=add_pooling_strategies,
                  **kwargs):
         super(CRF, self).__init__(**kwargs)
 
@@ -92,6 +112,8 @@ class CRF(Layer):
         self.input_dim = input_dim
         self.unroll = unroll
         self.transition_constraint = transition_constraint
+        self.transition_constraint_matrix = transition_constraint_matrix
+        self.pooling_strategy = pooling_strategy
 
         # value remembered for loss/metrics function
         self.logits = None
@@ -100,13 +122,22 @@ class CRF(Layer):
 
         # global variable
         self.kernel = None
-        self.chain_kernel = None
+        self.chain_kernel = None  # shape: (self.units, self.units)
         self.bias = None
         self.left_boundary = None
         self.right_boundary = None
         self.transition_constraint_mask = None
+        self.transition_constraint_matrix_mask = None
+        self.dynamic_transition_constraint = None
+
+        # for debug
+        self.dynamic_transition_constraint_input = None
+        self.inputs = None
 
     def build(self, input_shape):
+        if isinstance(input_shape, list):
+            input_shape = input_shape[0]
+
         input_shape = tuple(tf.TensorShape(input_shape).as_list())
         self.input_spec = [InputSpec(shape=input_shape)]
         self.input_dim = input_shape[-1]
@@ -119,6 +150,16 @@ class CRF(Layer):
             ),
             trainable=False
         )
+
+        if self.transition_constraint_matrix is not None:
+            self.transition_constraint_matrix_mask = self.add_weight(
+                shape=self.transition_constraint_matrix.shape,
+                name='transition_constraint_mask',
+                initializer=initializers.Constant(
+                    self.transition_constraint_matrix
+                ),
+                trainable=False
+            )
 
         if self.use_kernel:
             # weights that mapping arbitrary tensor to correct shape
@@ -162,14 +203,47 @@ class CRF(Layer):
         super(CRF, self).build(input_shape)
 
     def call(self, inputs, mask=None, **kwargs):
-        # inputs: Tensor(shape(?, ?, ?))
-        # mask: Tensor(shape=(?, ?), dtype=bool) or None
+        # inputs: Tensor(shape(B, T, F)) or (Tensor(B, T, F), Tensor(B, M))
+        # mask: Tensor(shape=(B, T), dtype=bool) or None
+
+        dynamic_transition_constraint_indicator = None
+
+        if isinstance(inputs, list):
+            assert len(inputs) == 2, "Input must have two input tensors"
+
+            dynamic_transition_constraint_indicator = inputs[1]
+            self.dynamic_transition_constraint_input = dynamic_transition_constraint_indicator
+
+            inputs = inputs[0]
+            self.inputs = inputs
+
+        if isinstance(mask, list):
+            print(mask)
+            mask = mask[0]
 
         if mask is not None:
             assert K.ndim(mask) == 2, 'Input mask to CRF must have dim 2 if not None'
 
         # remember this value for later use
         self.mask = mask
+
+        if dynamic_transition_constraint_indicator is not None:
+            # reshape from (B, M) to (B, M, 1)
+            constraint_indicator = K.expand_dims(dynamic_transition_constraint_indicator)
+
+            # shape: (B, M, N)
+            raw_constrain_pool = self.transition_constraint_matrix * constraint_indicator
+
+            # shape: (B, N)
+            unrolled_dynamic_transition_constraint = self.pooling_strategy(
+                raw_constrain_pool
+            )
+
+            # shape: (B, n+2, n+2), +2 for start and end tag
+            self.dynamic_transition_constraint = K.reshape(
+                unrolled_dynamic_transition_constraint,
+                [-1, self.units + 2, self.units + 2]
+            )
 
         logits = self._dense_layer(inputs)
 
@@ -239,18 +313,24 @@ class CRF(Layer):
         return K.concatenate([K.zeros_like(x[:, :offset]), x[:, :-offset]], axis=1)
 
     def add_boundary_energy(self, energy, mask):
-        def expend_scalar_to_3d(x):
-            # expend tensor from shape (x, ) to (1, 1, x)
-            return K.expand_dims(K.expand_dims(x, 0), 0)
+        """
+
+        :param energy: Tensor(shape=(B, T, F))
+        :param mask: Tensor(shape=(B, T), dtype=bool) or None
+        :return:
+        """
 
         start, end = self.compute_effective_boundary()
 
-        start = expend_scalar_to_3d(start)
-        end = expend_scalar_to_3d(end)
         if mask is None:
             energy = K.concatenate(
                 [energy[:, :1, :] + start, energy[:, 1:, :]],
                 axis=1)
+
+            result = sess.run(energy,
+                              feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]),
+                                         self.inputs: logits})
+
             energy = K.concatenate(
                 [energy[:, :-1, :], energy[:, -1:, :] + end],
                 axis=1)
@@ -265,14 +345,27 @@ class CRF(Layer):
             end_mask = K.cast(K.greater(mask, self.shift_left(mask)), K.floatx())
             energy = energy + start_mask * start
             energy = energy + end_mask * end
+
+        # result = sess.run([start, end], feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]), self.inputs: logits})
+
         return energy
 
     def compute_effective_chain_kernel(self):
+        """
+
+        :return: Tensor(shape=(B, n, n)) or Tensor(shape=(n, n))
+        """
         if self.transition_constraint:
             chain_kernel_mask = self.transition_constraint_mask[:self.units, :self.units]
             constrained_transitions = self.chain_kernel * chain_kernel_mask + -10000.0 * (1 - chain_kernel_mask)
 
             return constrained_transitions
+
+        if self.transition_constraint_matrix is not None:
+            dynamic_chain_kernel_mask = self.dynamic_transition_constraint[:, :self.units, :self.units]
+            dynamic_constrained_transitions = self.chain_kernel * dynamic_chain_kernel_mask + -10000.0 * (1 - dynamic_chain_kernel_mask)
+
+            return dynamic_constrained_transitions
 
         return self.chain_kernel
 
@@ -329,6 +422,9 @@ class CRF(Layer):
         return output_shape
 
     def compute_mask(self, input, mask=None):
+        if isinstance(mask, list):
+            mask = mask[0]
+
         if mask is not None and self.learn_mode == 'join':
             # transform mask from shape (?, ?) to (?, )
             new_mask = K.any(mask, axis=1)
@@ -371,6 +467,12 @@ class CRF(Layer):
             return result
 
     def _dense_layer(self, input_):
+        """
+        mapping any number of features to votes for each tags
+
+        :param input_: Tensor(shape=(B, T, F))
+        :return: Tensor(shape=(B, T, F))
+        """
         # TODO: can simply just use tf.keras.layers.dense ?
         if self.use_kernel:
             return self.activation(
@@ -390,6 +492,10 @@ class CRF(Layer):
         return constraint_mask
 
     def compute_effective_boundary(self):
+        """
+
+        :return: Tensor(shape=(B, 1, n)) or Tensor(shape=(1, 1, n))
+        """
         if self.transition_constraint:
             start_tag = self.units
             end_tag = self.units + 1
@@ -399,10 +505,50 @@ class CRF(Layer):
                     -10000.0 * (1 - self.transition_constraint_mask[start_tag, :self.units])
             )
             right_boundary = (
-                    self.left_boundary * self.transition_constraint_mask[:self.units, end_tag] +
+                    self.right_boundary * self.transition_constraint_mask[:self.units, end_tag] +
                     -10000.0 * (1 - self.transition_constraint_mask[:self.units, end_tag])
             )
 
             return left_boundary, right_boundary
 
-        return self.left_boundary, self.right_boundary
+        if self.transition_constraint_matrix is not None:
+            start_tag = self.units
+            end_tag = self.units + 1
+
+            # shape: (B, 1, n)
+            # left_dynamic_constraint = self.dynamic_transition_constraint[:, start_tag, :self.units]  # shape: (B, n)
+            left_dynamic_constraint = tf.slice(self.dynamic_transition_constraint, [0, start_tag, 0], [-1, 1, self.units])  # shape: (B, 1, n)
+
+            # shape: (B, 1, n)
+            left_boundary = (
+                self.left_boundary * left_dynamic_constraint +
+                -10000.0 * (1 - left_dynamic_constraint)
+            )
+
+            # shape: (B, 1, n)
+            # right_dynamic_constraint = self.dynamic_transition_constraint[:, :self.units, end_tag]  # shape: (B, n)
+            raw_right_dynamic_constraint = tf.slice(self.dynamic_transition_constraint, [0, 0, end_tag], [-1, self.units, 1])  # shape: (B, n, 1)
+            right_dynamic_constraint = tf.transpose(raw_right_dynamic_constraint, perm=[0, 2, 1])  # shape: (B, 1, n)
+
+
+            # shape: (B, 1, n)
+            right_boundary = (
+                self.right_boundary * right_dynamic_constraint +
+                -10000.0 * (1 - right_dynamic_constraint)
+            )
+
+            return left_boundary, right_boundary
+
+        # no any constraint at all
+
+        def expend_scalar_to_3d(x):
+            # expend tensor from shape (x, ) to (1, 1, x)
+            return K.expand_dims(K.expand_dims(x, 0), 0)
+
+        # shape: (1, 1, n)
+        left_boundary = expend_scalar_to_3d(self.left_boundary)
+
+        # shape: (1, 1, n)
+        right_boundary = expend_scalar_to_3d(self.right_boundary)
+
+        return left_boundary, right_boundary
