@@ -320,19 +320,7 @@ class CRF(Layer):
         :return:
         """
 
-        # sess = K.get_session()
-        # logits = np.array([
-        #     [[0, 0, .5, .5, .2], [0, 0, .3, .3, .1], [0, 0, .9, 10, 1]],
-        #     [[0, 0, .2, .5, .2], [0, 0, 3, .3, .1], [0, 0, .9, 1, 1]],
-        # ])
-        # result = sess.run(energy, feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]), self.inputs: logits})
-
         start, end = self.compute_effective_boundary()
-
-        # result = sess.run([start, end], feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]), self.inputs: logits})
-        #
-        # result = sess.run([energy[:, :1, :], energy[:, 1:, :]], feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]),
-        #                                            self.inputs: logits})
 
         if mask is None:
             energy = K.concatenate(
