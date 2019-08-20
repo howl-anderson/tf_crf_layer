@@ -31,8 +31,16 @@ User can pass a static transfer constraint to limit hidden states transfer proba
 Mainly used to greatly (not absolutely) reduce the probability of illegal hidden states sequence.
 Such like  B -> B in BILUO tag schema.
 
+Static transfer constraint is first introduced by AllenNLP. I also learned this technology from it.
+
 ```python
 
 ```
 
 ### CRF with dynamic transfer constraint
+
+Dynamic transfer constraint is different from static transfer constraint that business logical may require apply some transfer constraint at running time.
+For example, user have a intent or domain classifier which work pretty well.
+User need implement a CRF based NER extractor. But not every entity of NER are illegal for that domain.
+For example, location entity is illegal for music domain.
+But user do not know such information at compile time, such information can only be get at running time from other component.
