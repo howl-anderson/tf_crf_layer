@@ -4,7 +4,7 @@ import tensorflow as tf
 from tensorflow.python.keras.layers import Embedding, Bidirectional, LSTM
 from tensorflow.python.keras.models import Sequential
 
-from demo_code.input_data import get_input_data
+from demo.input_data import get_input_data
 from tf_crf_layer.layer import CRF
 from tf_crf_layer.loss import crf_loss
 from tf_crf_layer.metrics import crf_accuracy
