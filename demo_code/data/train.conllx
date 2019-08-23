@@ -11157,7 +11157,7 @@ c	L-name
 票	O
 么	O
 
-#	{"label": NaN, "domain": "joke", "id": "344292ee-2c8a-4287-b1c8-b665e05d815f"}
+#	{"label": "QUERY", "domain": "joke", "id": "344292ee-2c8a-4287-b1c8-b665e05d815f"}
 讲	O
 个	O
 笑	O
@@ -11524,7 +11524,7 @@ c	L-name
 天	B-name
 天	L-name
 
-#	{"label": NaN, "domain": "contacts", "id": "c46fe842-ceba-4fec-a039-bd1f4456ed6b"}
+#	{"label": "QUERY", "domain": "contacts", "id": "c46fe842-ceba-4fec-a039-bd1f4456ed6b"}
 查	O
 找	O
 张	B-name
@@ -11799,7 +11799,7 @@ c	L-name
 么	O
 做	O
 
-#	{"label": NaN, "domain": "cookbook", "id": "e5256db5-b120-4e28-a253-fce5096bcfe6"}
+#	{"label": "QUERY", "domain": "cookbook", "id": "e5256db5-b120-4e28-a253-fce5096bcfe6"}
 人	B-dishName
 造	I-dishName
 鸡	I-dishName

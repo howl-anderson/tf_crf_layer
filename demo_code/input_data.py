@@ -7,7 +7,7 @@ from seq2annotation.input import generate_tagset, Lookuper, \
     index_table_from_file
 
 
-def preprocss(data):
+def preprocss(data, tag_look_table, vocabulary_lookup_table):
     raw_x = []
     raw_y = []
 
@@ -15,8 +15,8 @@ def preprocss(data):
         tags = offset_to_biluo(offset_data)
         words = offset_data.text
 
-        tag_ids = [tag_lookuper.lookup(i) for i in tags]
-        word_ids = [vocabulary_lookuper.lookup(i) for i in words]
+        tag_ids = [tag_look_table.lookup(i) for i in tags]
+        word_ids = [vocabulary_lookup_table.lookup(i) for i in words]
 
         raw_x.append(word_ids)
         raw_y.append(tag_ids)
@@ -54,7 +54,11 @@ def get_input_data():
     vocab_data_file = './data/unicode_char_list.txt'
     vocabulary_lookup = index_table_from_file(vocab_data_file)
 
-    train_x, train_y = preprocss(train_data)
-    test_x, test_y = preprocss(eval_data)
+    train_x, train_y = preprocss(train_data, tag_lookup, vocabulary_lookup)
+    
+    if eval_data:
+        test_x, test_y = preprocss(eval_data, tag_lookup, vocabulary_lookup)
+    else:
+        test_x, test_y = None, None
 
     return config, (train_x, train_y), (test_x, test_y), tag_lookup, vocabulary_lookup
