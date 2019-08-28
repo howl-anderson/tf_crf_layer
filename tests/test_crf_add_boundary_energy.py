@@ -33,7 +33,8 @@ def test_crf_add_boundary_energy_with_no_mask():
     end = tf.constant([-1, -1, -1, -1, -1], dtype=tf.float32)
 
     crf = CRF(None)
-    new_energy_tensor = crf.add_boundary_energy(energy, mask, start, end)
+    crf.compute_effective_boundary = lambda: (start, end)
+    new_energy_tensor = crf.add_boundary_energy(energy, mask)
 
     with tf.Session() as sess:
         new_energy = sess.run(new_energy_tensor)
@@ -102,7 +103,8 @@ def test_crf_add_boundary_energy_with_mask():
     end = tf.constant([-1, -1, -1, -1, -1], dtype=tf.float32)
 
     crf = CRF(None)
-    new_energy_tensor = crf.add_boundary_energy(energy, mask, start, end)
+    crf.compute_effective_boundary = lambda: (start, end)
+    new_energy_tensor = crf.add_boundary_energy(energy, mask)
 
     with tf.Session() as sess:
         new_energy = sess.run(new_energy_tensor)

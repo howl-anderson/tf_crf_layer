@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.keras import backend as K
+from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.keras import initializers, regularizers, constraints, \
     activations
 from tensorflow.python.keras.layers import InputSpec, Layer
@@ -129,6 +130,7 @@ class CRF(Layer):
         self.transition_constraint_mask = None
         self.transition_constraint_matrix_mask = None
         self.dynamic_transition_constraint = None
+        self.is_training = False
 
         # for debug
         self.dynamic_transition_constraint_input = None
@@ -206,6 +208,11 @@ class CRF(Layer):
         # inputs: Tensor(shape(B, T, F)) or (Tensor(B, T, F), Tensor(B, M))
         # mask: Tensor(shape=(B, T), dtype=bool) or None
 
+        training = kwargs.get('training', None)
+        if training is None:
+            training = K.learning_phase()
+        self.is_training = training
+
         dynamic_transition_constraint_indicator = None
 
         if isinstance(inputs, list):
@@ -227,23 +234,30 @@ class CRF(Layer):
         # remember this value for later use
         self.mask = mask
 
-        if dynamic_transition_constraint_indicator is not None:
-            # reshape from (B, M) to (B, M, 1)
-            constraint_indicator = K.expand_dims(dynamic_transition_constraint_indicator)
+        def compute_dynamic_transition_constraint():
+            if dynamic_transition_constraint_indicator is not None:
+                # reshape from (B, M) to (B, M, 1)
+                constraint_indicator = K.expand_dims(dynamic_transition_constraint_indicator)
 
-            # shape: (B, M, N)
-            raw_constrain_pool = self.transition_constraint_matrix * constraint_indicator
+                # shape: (B, M, N)
+                raw_constrain_pool = self.transition_constraint_matrix * constraint_indicator
 
-            # shape: (B, N)
-            unrolled_dynamic_transition_constraint = self.pooling_strategy(
-                raw_constrain_pool
-            )
+                # shape: (B, N)
+                unrolled_dynamic_transition_constraint = self.pooling_strategy(
+                    raw_constrain_pool
+                )
 
-            # shape: (B, n+2, n+2), +2 for start and end tag
-            self.dynamic_transition_constraint = K.reshape(
-                unrolled_dynamic_transition_constraint,
-                [-1, self.units + 2, self.units + 2]
-            )
+                # shape: (B, n+2, n+2), +2 for start and end tag
+                return K.reshape(
+                    unrolled_dynamic_transition_constraint,
+                    [-1, self.units + 2, self.units + 2]
+                )
+
+            return None
+
+        self.dynamic_transition_constraint = tf_utils.smart_cond(self.is_training,
+                                                                 compute_dynamic_transition_constraint,
+                                                                 lambda: None)
 
         logits = self._dense_layer(inputs)
 
@@ -327,9 +341,9 @@ class CRF(Layer):
                 [energy[:, :1, :] + start, energy[:, 1:, :]],
                 axis=1)
 
-            result = sess.run(energy,
-                              feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]),
-                                         self.inputs: logits})
+            # result = sess.run(energy,
+            #                   feed_dict={self.dynamic_transition_constraint_input: np.array([[0, 1], [1, 0]]),
+            #                              self.inputs: logits})
 
             energy = K.concatenate(
                 [energy[:, :-1, :], energy[:, -1:, :] + end],
@@ -355,19 +369,27 @@ class CRF(Layer):
 
         :return: Tensor(shape=(B, n, n)) or Tensor(shape=(n, n))
         """
-        if self.transition_constraint:
-            chain_kernel_mask = self.transition_constraint_mask[:self.units, :self.units]
-            constrained_transitions = self.chain_kernel * chain_kernel_mask + -10000.0 * (1 - chain_kernel_mask)
+        def compute_constrained_chain_kernel():
+            if self.transition_constraint:
+                chain_kernel_mask = self.transition_constraint_mask[:self.units, :self.units]
+                constrained_transitions = self.chain_kernel * chain_kernel_mask + -10000.0 * (1 - chain_kernel_mask)
 
-            return constrained_transitions
+                return constrained_transitions
 
-        if self.transition_constraint_matrix is not None:
-            dynamic_chain_kernel_mask = self.dynamic_transition_constraint[:, :self.units, :self.units]
-            dynamic_constrained_transitions = self.chain_kernel * dynamic_chain_kernel_mask + -10000.0 * (1 - dynamic_chain_kernel_mask)
+            if self.transition_constraint_matrix is not None:
+                dynamic_chain_kernel_mask = self.dynamic_transition_constraint[:, :self.units, :self.units]
+                dynamic_constrained_transitions = self.chain_kernel * dynamic_chain_kernel_mask + -10000.0 * (1 - dynamic_chain_kernel_mask)
 
-            return dynamic_constrained_transitions
+                return dynamic_constrained_transitions
 
-        return self.chain_kernel
+        def compute_unconstrained_chain_kernel():
+            return self.chain_kernel
+
+        chain_kernel = tf_utils.smart_cond(self.is_training,
+                                           compute_constrained_chain_kernel,
+                                           compute_unconstrained_chain_kernel)
+
+        return chain_kernel
 
     def get_viterbi_decoding(self, input_energy, nwords):
         chain_kernel = self.compute_effective_chain_kernel()
@@ -496,59 +518,68 @@ class CRF(Layer):
 
         :return: Tensor(shape=(B, 1, n)) or Tensor(shape=(1, 1, n))
         """
-        if self.transition_constraint:
-            start_tag = self.units
-            end_tag = self.units + 1
 
-            left_boundary = (
-                    self.left_boundary * self.transition_constraint_mask[start_tag, :self.units] +
-                    -10000.0 * (1 - self.transition_constraint_mask[start_tag, :self.units])
-            )
-            right_boundary = (
-                    self.right_boundary * self.transition_constraint_mask[:self.units, end_tag] +
-                    -10000.0 * (1 - self.transition_constraint_mask[:self.units, end_tag])
-            )
+        def compute_constrained_boundary():
+            if self.transition_constraint:
+                start_tag = self.units
+                end_tag = self.units + 1
+
+                left_boundary = (
+                        self.left_boundary * self.transition_constraint_mask[start_tag, :self.units] +
+                        -10000.0 * (1 - self.transition_constraint_mask[start_tag, :self.units])
+                )
+                right_boundary = (
+                        self.right_boundary * self.transition_constraint_mask[:self.units, end_tag] +
+                        -10000.0 * (1 - self.transition_constraint_mask[:self.units, end_tag])
+                )
+
+                return left_boundary, right_boundary
+
+            if self.transition_constraint_matrix is not None:
+                start_tag = self.units
+                end_tag = self.units + 1
+
+                # shape: (B, 1, n)
+                # left_dynamic_constraint = self.dynamic_transition_constraint[:, start_tag, :self.units]  # shape: (B, n)
+                left_dynamic_constraint = tf.slice(self.dynamic_transition_constraint, [0, start_tag, 0], [-1, 1, self.units])  # shape: (B, 1, n)
+
+                # shape: (B, 1, n)
+                left_boundary = (
+                    self.left_boundary * left_dynamic_constraint +
+                    -10000.0 * (1 - left_dynamic_constraint)
+                )
+
+                # shape: (B, 1, n)
+                # right_dynamic_constraint = self.dynamic_transition_constraint[:, :self.units, end_tag]  # shape: (B, n)
+                raw_right_dynamic_constraint = tf.slice(self.dynamic_transition_constraint, [0, 0, end_tag], [-1, self.units, 1])  # shape: (B, n, 1)
+                right_dynamic_constraint = tf.transpose(raw_right_dynamic_constraint, perm=[0, 2, 1])  # shape: (B, 1, n)
+
+
+                # shape: (B, 1, n)
+                right_boundary = (
+                    self.right_boundary * right_dynamic_constraint +
+                    -10000.0 * (1 - right_dynamic_constraint)
+                )
+
+                return left_boundary, right_boundary
+
+        def compute_unconstrained_boundary():
+            # no any constraint at all
+
+            def expend_scalar_to_3d(x):
+                # expend tensor from shape (x, ) to (1, 1, x)
+                return K.expand_dims(K.expand_dims(x, 0), 0)
+
+            # shape: (1, 1, n)
+            left_boundary = expend_scalar_to_3d(self.left_boundary)
+
+            # shape: (1, 1, n)
+            right_boundary = expend_scalar_to_3d(self.right_boundary)
 
             return left_boundary, right_boundary
 
-        if self.transition_constraint_matrix is not None:
-            start_tag = self.units
-            end_tag = self.units + 1
-
-            # shape: (B, 1, n)
-            # left_dynamic_constraint = self.dynamic_transition_constraint[:, start_tag, :self.units]  # shape: (B, n)
-            left_dynamic_constraint = tf.slice(self.dynamic_transition_constraint, [0, start_tag, 0], [-1, 1, self.units])  # shape: (B, 1, n)
-
-            # shape: (B, 1, n)
-            left_boundary = (
-                self.left_boundary * left_dynamic_constraint +
-                -10000.0 * (1 - left_dynamic_constraint)
-            )
-
-            # shape: (B, 1, n)
-            # right_dynamic_constraint = self.dynamic_transition_constraint[:, :self.units, end_tag]  # shape: (B, n)
-            raw_right_dynamic_constraint = tf.slice(self.dynamic_transition_constraint, [0, 0, end_tag], [-1, self.units, 1])  # shape: (B, n, 1)
-            right_dynamic_constraint = tf.transpose(raw_right_dynamic_constraint, perm=[0, 2, 1])  # shape: (B, 1, n)
-
-
-            # shape: (B, 1, n)
-            right_boundary = (
-                self.right_boundary * right_dynamic_constraint +
-                -10000.0 * (1 - right_dynamic_constraint)
-            )
-
-            return left_boundary, right_boundary
-
-        # no any constraint at all
-
-        def expend_scalar_to_3d(x):
-            # expend tensor from shape (x, ) to (1, 1, x)
-            return K.expand_dims(K.expand_dims(x, 0), 0)
-
-        # shape: (1, 1, n)
-        left_boundary = expend_scalar_to_3d(self.left_boundary)
-
-        # shape: (1, 1, n)
-        right_boundary = expend_scalar_to_3d(self.right_boundary)
+        left_boundary, right_boundary = tf_utils.smart_cond(self.is_training,
+                                                            compute_constrained_boundary,
+                                                            compute_unconstrained_boundary)
 
         return left_boundary, right_boundary
