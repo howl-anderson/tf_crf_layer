@@ -8,7 +8,7 @@ def test_allowed_transitions():
     # pylint: disable=bad-whitespace,bad-continuation
     bio_labels = ['O', 'B-X', 'I-X', 'B-Y', 'I-Y']  # start tag, end tag
     #              0     1      2      3      4         5          6
-    allowed = allowed_transitions("BIO", dict(enumerate(bio_labels)))
+    allowed, _ = allowed_transitions("BIO", dict(enumerate(bio_labels)))
 
     # The empty spaces in this matrix indicate disallowed transitions.
     assert set(allowed) == {                         # Extra column for end tag.
@@ -22,7 +22,7 @@ def test_allowed_transitions():
 
     bioul_labels = ['O', 'B-X', 'I-X', 'L-X', 'U-X', 'B-Y', 'I-Y', 'L-Y', 'U-Y']  # start tag, end tag
     #                0     1      2      3      4      5      6      7      8          9        10
-    allowed = allowed_transitions("BIOUL", dict(enumerate(bioul_labels)))
+    allowed, _ = allowed_transitions("BIOUL", dict(enumerate(bioul_labels)))
 
     # The empty spaces in this matrix indicate disallowed transitions.
     assert set(allowed) == {                                                   # Extra column for end tag.
@@ -41,7 +41,7 @@ def test_allowed_transitions():
 
     iob1_labels = ['O', 'B-X', 'I-X', 'B-Y', 'I-Y']  # start tag, end tag
     #              0     1      2      3      4         5          6
-    allowed = allowed_transitions("IOB1", dict(enumerate(iob1_labels)))
+    allowed, _ = allowed_transitions("IOB1", dict(enumerate(iob1_labels)))
 
     # The empty spaces in this matrix indicate disallowed transitions.
     assert set(allowed) == {                            # Extra column for end tag.
@@ -57,7 +57,7 @@ def test_allowed_transitions():
 
     bmes_labels = ['B-X', 'M-X', 'E-X', 'S-X', 'B-Y', 'M-Y', 'E-Y', 'S-Y']  # start tag, end tag
     #               0      1      2      3      4      5      6      7       8          9
-    allowed = allowed_transitions("BMES", dict(enumerate(bmes_labels)))
+    allowed, _ = allowed_transitions("BMES", dict(enumerate(bmes_labels)))
     assert set(allowed) == {
                 (0, 1), (0, 2),
                 (1, 1), (1, 2),                                         # Extra column for end tag.

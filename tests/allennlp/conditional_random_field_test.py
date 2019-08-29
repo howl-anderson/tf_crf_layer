@@ -166,7 +166,6 @@ class TestConditionalRandomField(unittest.TestCase):
 
         assert exepected_log_likelihood == approx(unbatched_log_likelihood)
 
-
     def test_viterbi_tags(self):
         mask = np.array([
                 [1, 1, 1],
@@ -266,6 +265,174 @@ class TestConditionalRandomField(unittest.TestCase):
         expected_tags = [
             [2, 3, 3],
             [2, 3, 0]
+        ]
+
+        # if constrain not work it should be:
+        # [
+        #     [2, 4, 3],
+        #     [2, 3, 0]
+        # ]
+
+        # test assert
+        np.testing.assert_equal(viterbi_tags, expected_tags)
+
+    def test_unmasked_constrained_viterbi_tags(self):
+        # TODO: using BILUO tag scheme instead of BIO.
+        #       So that, transition from tags to end can be tested.
+
+        raw_constraints = np.array([
+            #     O     B-X    I-X    B-Y    I-Y  start   end
+            [     1,     1,     0,     1,     0,    0,     1],  # O
+            [     1,     1,     1,     1,     0,    0,     1],  # B-X
+            [     1,     1,     1,     1,     0,    0,     1],  # I-X
+            [     1,     1,     0,     1,     1,    0,     1],  # B-Y
+            [     1,     1,     0,     1,     1,    0,     1],  # I-Y
+            [     1,     1,     0,     1,     0,    0,     0],  # start
+            [     0,     0,     0,     0,     0,    0,     0],  # end
+        ])
+
+        constraints = np.argwhere(raw_constraints > 0).tolist()
+
+        # transitions = np.array([
+        #     #     O     B-X    I-X    B-Y    I-Y
+        #     [    0.1,   0.2,   0.3,   0.4,   0.5],  # O
+        #     [    0.8,   0.3,   0.1,   0.7,   0.9],  # B-X
+        #     [   -0.3,   2.1,  -5.6,   3.4,   4.0],  # I-X
+        #     [    0.2,   0.4,   0.6,  -0.3,  -0.4],  # B-Y
+        #     [    1.0,   1.0,   1.0,   1.0,   1.0]   # I-Y
+        # ])
+
+        transitions = np.ones([5, 5])
+
+        # transitions_from_start = np.array(
+        #     #     O     B-X    I-X    B-Y    I-Y
+        #     [    0.1,   0.2,   0.3,   0.4,   0.6]  # start
+        # )
+
+        transitions_from_start = np.ones(5)
+
+        # transitions_to_end = np.array(
+        #     [
+        #     #    end
+        #         -0.1,  # O
+        #         -0.2,  # B-X
+        #          0.3,  # I-X
+        #         -0.4,  # B-Y
+        #         -0.4   # I-Y
+        #     ]
+        # )
+
+        transitions_to_end = np.ones(5)
+
+        logits = np.array([
+            [
+            # constraint transition from start to tags
+            #     O     B-X    I-X    B-Y    I-Y
+                [ 0.,    .1,   1.,     0.,   0.],
+                [ 0.,    0.,   1.,     0.,   0.],
+                [ 0.,    0.,   1.,     0.,   0.]
+            ],
+            [
+            # constraint transition from tags to tags
+            #     O     B-X    I-X    B-Y    I-Y
+                [ 0.,    1.,   0.,     0.,   0.],
+                [ 0.,    0.,   .1,     1.,   0.],
+                [ 0.,    0.,   1.,     0.,   0.]
+            ]
+        ])
+
+        crf = CRF(
+            units=5,
+            use_kernel=False,  # disable kernel transform
+            chain_initializer=initializers.Constant(transitions),
+            use_boundary=True,
+            left_boundary_initializer=initializers.Constant(transitions_from_start),
+            right_boundary_initializer=initializers.Constant(transitions_to_end),
+            transition_constraint=constraints
+        )
+
+        model = Sequential()
+        model.add(layers.Input(shape=(3, 5)))
+        model.add(crf)
+        model.compile('adam', loss=crf_loss)
+        model.summary()
+
+        for layer in model.layers:
+            print(layer.get_config())
+            print(dict(zip(layer.weights, layer.get_weights())))
+
+        # Get just the tags from each tuple of (tags, score).
+        viterbi_tags = model.predict(logits)
+
+        # Now the tags should respect the constraints
+        expected_tags = [
+            [1, 2, 2],  # B-X  I-X  I-X
+            [1, 2, 2]   # B-X  I-X  I-X
+        ]
+
+        # if constrain not work it should be:
+        # [
+        #     [2, 4, 3],
+        #     [2, 3, 0]
+        # ]
+
+        # test assert
+        np.testing.assert_equal(viterbi_tags, expected_tags)
+
+    def test_masked_viterbi_decode(self):
+        transitions = np.ones([5, 5])
+        transitions_from_start = np.ones(5)
+        transitions_to_end = np.ones(5)
+
+        logits = np.array([
+            [
+            #     O     B-X    I-X    B-Y    I-Y
+                [ 0.,    1.,   0.,     0.,   0.],
+                [ 0.,    0.,   1.,     0.,   0.],
+                [ 0.,    0.,   1.,     0.,   0.]
+            ],
+            [
+            #     O     B-X    I-X    B-Y    I-Y
+                [ 0.,    1.,   0.,     0.,   0.],
+                [ 0.,    1.,   0.,     0.,   0.],
+                [ 0.,    1.,   0.,     0.,   0.]
+            ]
+        ])
+
+        # TODO: this test case is right padding mask only
+        #       due to the underline crf function only support sequence length
+        mask = np.array([
+                [1, 1, 0],
+                [1, 1, 0]
+        ])
+
+        crf = CRF(
+            units=5,
+            use_kernel=False,  # disable kernel transform
+            chain_initializer=initializers.Constant(transitions),
+            use_boundary=True,
+            left_boundary_initializer=initializers.Constant(transitions_from_start),
+            right_boundary_initializer=initializers.Constant(transitions_to_end),
+        )
+
+        model = Sequential()
+        model.add(layers.Input(shape=(3, 5)))
+        model.add(MockMasking(mask_shape=(2, 3), mask_value=mask))
+        model.add(crf)
+        model.compile('adam', loss=crf_loss)
+        model.summary()
+
+        for layer in model.layers:
+            print(layer.get_config())
+            print(dict(zip(layer.weights, layer.get_weights())))
+
+        # Get just the tags from each tuple of (tags, score).
+        viterbi_tags = model.predict(logits)
+
+        # Now the tags should respect the constraints
+        expected_tags = [
+            [1, 2, 0],  # B-X  I-X  NA
+            [1, 1, 0]   # B-X  B-X  NA
         ]
 
         # if constrain not work it should be:
