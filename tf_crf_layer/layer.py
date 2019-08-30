@@ -30,12 +30,15 @@ TODO
 # B: batch size
 # M: intent number
 # n: where n is the tag set number
+# n+2: n plus start and end tag
 # N: n * n
 # T: sequence length
 # F: feature number
 
 
 def add_pooling_strategies(x):
+    # x: shape (B, M, n+2, n+2)
+    # return (B, n+2, n+2)
     return K.sum(x, axis=1, keepdims=False)
 
 
@@ -70,7 +73,7 @@ class CRF(Layer):
                  input_dim=None,
                  unroll=False,
                  transition_constraint=None,
-                 transition_constraint_matrix=None,  # shape: (M, N)
+                 transition_constraint_matrix=None,  # shape: (M, N) - > (M, n+2, n+2)
                  pooling_strategy=add_pooling_strategies,
                  **kwargs):
         super(CRF, self).__init__(**kwargs)
@@ -238,22 +241,19 @@ class CRF(Layer):
         self.mask = mask
 
         if dynamic_transition_constraint_indicator is not None:
-            # reshape from (B, M) to (B, M, 1)
-            constraint_indicator = K.expand_dims(dynamic_transition_constraint_indicator)
+            # reshape from (B, M) to (B, M, 1, 1)
+            constraint_indicator = K.expand_dims(K.expand_dims(dynamic_transition_constraint_indicator))
 
-            # shape: (B, M, N)
+            # shape: (B, M, n+2, n+2)
             raw_constrain_pool = self.transition_constraint_matrix * constraint_indicator
 
-            # shape: (B, N)
+            # shape: (B, n+2, n+2)
             unrolled_dynamic_transition_constraint = self.pooling_strategy(
                 raw_constrain_pool
             )
 
             # shape: (B, n+2, n+2), +2 for start and end tag
-            self.dynamic_transition_constraint = K.reshape(
-                unrolled_dynamic_transition_constraint,
-                [-1, self.units + 2, self.units + 2]
-            )
+            self.dynamic_transition_constraint = unrolled_dynamic_transition_constraint
 
         logits = self._dense_layer(inputs)
         print("logits:", logits)

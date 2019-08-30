@@ -43,7 +43,7 @@ class TestDynamicTransitionConstraint(unittest.TestCase):
                 [1] * 28 + [0] * 21,  # [1] * ((5 + 2) * (5 + 2)),
                 [1] * ((5 + 2) * (5 + 2))
             ]
-        )
+        ).reshape((2, 7, 7))
 
         self.dynamic_constraint = np.array([
             [0, 1],
@@ -76,10 +76,10 @@ class TestDynamicTransitionConstraint(unittest.TestCase):
 
         # compute expected value
         # reshape: (B, M) --> (B, M, 1)
-        expand_dynamic_constraint = np.expand_dims(self.dynamic_constraint, -1)
+        expand_dynamic_constraint = np.expand_dims(np.expand_dims(self.dynamic_constraint, -1), -1)
         unpool_constraint = expand_dynamic_constraint * self.transition_constraint_matrix
         rolled_constraint = np.sum(unpool_constraint, axis=1)
-        constraint = np.reshape(rolled_constraint, (-1, 7, 7))
+        constraint = rolled_constraint
 
         np_crf = NPCRF(
             5,
@@ -90,6 +90,89 @@ class TestDynamicTransitionConstraint(unittest.TestCase):
         )
 
         expect_decode = np_crf.viterbi_decode(self.logits)
+
+        assert out.shape == (2, 3)
+        np.testing.assert_equal(out, expect_decode)
+
+    def test_dynamic_decode(self):
+        logits = np.array([
+            [
+            # constraint transition from B-Y I-Y I-Y (1 + 1 + 1) to B-X I-X I-X (0.1 + 0.1  + 0.1)
+            #     O     B-X    I-X    B-Y    I-Y
+                [ 0.,    .1,   0.,     1.,   0.],
+                [ 0.,    0.,   .1,     0.,   1.],
+                [ 0.,    0.,   .1,     0.,   1.]
+            ],
+            [
+            # constraint transition from B-X I-X I-X (1 + 1 + 1) to B-Y I-Y I-Y (0.1 + 0.1 + 0.1)
+            #     O     B-X    I-X    B-Y    I-Y
+                [ 0.,    1.,   0.,     .1,   0.],
+                [ 0.,    0.,   1.,     0.,   .1],
+                [ 0.,    0.,   1.,     0.,   .1]
+            ]
+        ])
+
+        transitions = np.ones([5, 5])
+
+        transitions_from_start = np.ones(5)
+        transitions_to_end = np.ones(5)
+
+        transition_constraint_matrix = np.array(
+            [
+                [
+                #  Only allowed: B-X I-X O
+                    #     O     B-X    I-X    B-Y    I-Y  start   end
+                    [     1,     1,     0,     0,     0,    0,     1],  # O
+                    [     1,     1,     1,     0,     0,    0,     1],  # B-X
+                    [     1,     1,     1,     0,     0,    0,     1],  # I-X
+                    [     0,     0,     0,     0,     0,    0,     0],  # B-Y
+                    [     0,     0,     0,     0,     0,    0,     0],  # I-Y
+                    [     1,     1,     0,     0,     0,    0,     0],  # start
+                    [     0,     0,     0,     0,     0,    0,     0],  # end
+                ],
+                [
+                #  Only allowed: B-Y I-Y O
+                    #     O     B-X    I-X    B-Y    I-Y  start   end
+                    [     1,     0,     0,     1,     0,    0,     1],  # O
+                    [     0,     0,     0,     0,     0,    0,     0],  # B-X
+                    [     0,     0,     0,     0,     0,    0,     0],  # I-X
+                    [     1,     0,     0,     1,     1,    0,     1],  # B-Y
+                    [     1,     0,     0,     1,     1,    0,     1],  # I-Y
+                    [     1,     0,     0,     1,     0,    0,     0],  # start
+                    [     0,     0,     0,     0,     0,    0,     0],  # end
+                ]
+            ]
+        )
+
+        dynamic_constraint = np.array([
+            [1, 0],  # use constraint #1
+            [0, 1]   # use constraint #2
+        ])
+
+        crf = CRF(
+            units=5,
+            use_kernel=False,  # disable kernel transform
+            chain_initializer=initializers.Constant(transitions),
+            use_boundary=True,
+            left_boundary_initializer=initializers.Constant(transitions_from_start),
+            right_boundary_initializer=initializers.Constant(transitions_to_end),
+            transition_constraint_matrix=transition_constraint_matrix
+        )
+
+        raw_logits_input = layers.Input(shape=(3, 5))
+        dynamic_constraint_input = layers.Input(shape=(2,))
+
+        output_layer = crf([raw_logits_input, dynamic_constraint_input])
+
+        model = models.Model([raw_logits_input, dynamic_constraint_input], output_layer)
+        model.summary()
+
+        out = model.predict([logits, dynamic_constraint])
+
+        expect_decode = np.array([
+            [1, 2, 2],
+            [3, 4, 4]
+        ])
 
         assert out.shape == (2, 3)
         np.testing.assert_equal(out, expect_decode)
@@ -109,10 +192,10 @@ class TestDynamicTransitionConstraint(unittest.TestCase):
 
         # compute expected value
         # reshape: (B, M) --> (B, M, 1)
-        expand_dynamic_constraint = np.expand_dims(self.dynamic_constraint, -1)
+        expand_dynamic_constraint = np.expand_dims(np.expand_dims(self.dynamic_constraint, -1), -1)
         unpool_constraint = expand_dynamic_constraint * self.transition_constraint_matrix
         rolled_constraint = np.sum(unpool_constraint, axis=1)
-        constraint = np.reshape(rolled_constraint, (-1, 7, 7))
+        constraint = rolled_constraint
 
         np_crf = NPCRF(
             5,
