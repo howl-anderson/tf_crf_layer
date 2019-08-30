@@ -1,6 +1,7 @@
 import itertools
 import json
 
+import numpy as np
 import pandas as pd
 
 from tf_crf_layer.crf_static_constraint_helper import allowed_transitions
@@ -13,6 +14,7 @@ def generate_constraint_table(constraint_mapping: List[List[str]] = None, tag_di
     _, allowed_matrix = allowed_transitions(tag_scheme, tag_dict)
     constraint_matrix_list = []
     for constraint in constraint_mapping:
+        # copy a constraint matrix filled with false
         mask_matrix = allowed_matrix.replace(True, False)
 
         from_list, to_list = None, None
@@ -30,16 +32,23 @@ def generate_constraint_table(constraint_mapping: List[List[str]] = None, tag_di
         mask_matrix.loc[from_list, to_list] = True
 
         constraint_matrix = allowed_matrix & mask_matrix
-        constraint_serials = pd.Series(constraint_matrix.values.flatten())
 
-        constraint_matrix_list.append(constraint_serials)
+        constraint_matrix_list.append(constraint_matrix)
 
-    constraint_matrix = pd.concat(constraint_matrix_list, axis=1).T
-    return constraint_matrix.values
+    constraint_matrix = np.stack([df.values for df in constraint_matrix_list], axis=0)
+    return constraint_matrix
 
 
 def filter_constraint(constraint: Dict[str, List[str]], tag_set: List[str] = None, intent_set: List[str] = None):
-    # filter out entity not in tag_list
+    """
+    filter out entity not in tag_list
+
+    :param constraint:
+    :param tag_set:
+    :param intent_set:
+    :return:
+    """
+
     valid_constraint = dict()
     for k, v in constraint.items():
         if intent_set and k not in intent_set:
@@ -71,6 +80,9 @@ if __name__ == "__main__":
 
     # filter out entity not in tag_list
     valid_constraint = filter_constraint(constraint, tag_list)
+
+    constraint_mapping = list(valid_constraint.values())
+    tag_dict = dict(enumerate(tag_set))
         
-    generate_constraint_table(list(valid_constraint.values()), dict(enumerate(tag_set)))
+    generate_constraint_table(constraint_mapping, tag_dict)
 
