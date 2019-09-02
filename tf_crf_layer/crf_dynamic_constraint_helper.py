@@ -11,27 +11,19 @@ from typing import Sequence, Tuple, List, AnyStr, Dict
 
 
 def generate_constraint_table(constraint_mapping: List[List[str]] = None, tag_dict: Dict[int, str] = None, tag_scheme='BIOUL'):
-    _, allowed_matrix = allowed_transitions(tag_scheme, tag_dict)
     constraint_matrix_list = []
     for constraint in constraint_mapping:
-        # copy a constraint matrix filled with false
-        mask_matrix = allowed_matrix.replace(True, False)
-
-        from_list, to_list = None, None
-
-        if not constraint:
-            from_list, to_list = ['O'], ['O']
+        all_tag_set = set()
 
         for entity in constraint:
             encoder = BILUOEncoderDecoder(entity)
             tag_set = encoder.all_tag_set()
 
-            product_of_tag = itertools.product(tag_set, tag_set)
-            from_list, to_list = zip(*product_of_tag)
+            all_tag_set.update(tag_set)
 
-        mask_matrix.loc[from_list, to_list] = True
+        all_tag_dict = dict(i for i in tag_dict.items() if i[1] in all_tag_set)
 
-        constraint_matrix = allowed_matrix & mask_matrix
+        _, constraint_matrix = allowed_transitions(tag_scheme, all_tag_dict, tag_dict)
 
         constraint_matrix_list.append(constraint_matrix)
 
@@ -64,6 +56,13 @@ def filter_constraint(constraint: Dict[str, List[str]], tag_set: List[str] = Non
         valid_constraint[k] = valid_v
 
     return valid_constraint
+
+
+def sort_constraint(constraints: Dict[str, List[str]], intent_lookup_table: Dict[str, int]):
+    sorted_constraint = sorted(constraints.items(), key=lambda x: intent_lookup_table[x[0]])
+    sorted_constraint_list = [i[1] for i in sorted_constraint]
+
+    return sorted_constraint_list
         
 
 if __name__ == "__main__":
