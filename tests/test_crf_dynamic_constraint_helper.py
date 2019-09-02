@@ -9,9 +9,11 @@ def test_generate_constraint_table():
         ["Y"]   # domain #2 only contain entity Y
     ]
 
-    tag_dict = dict(enumerate(["O", "B-X", "I-X", "L-X", "U-X", "B-Y", "I-Y", "L-Y", "U-Y"]))
+    tag_dict = dict(
+        enumerate(["O", "B-X", "I-X", "L-X", "U-X", "B-Y", "I-Y", "L-Y", "U-Y"])
+    )
 
-    actual = generate_constraint_table(constraint_mapping, tag_dict, tag_scheme='BIOUL')
+    actual = generate_constraint_table(constraint_mapping, tag_dict, tag_scheme="BIOUL")
 
     expected = np.array([
         [
@@ -54,12 +56,14 @@ def test_generate_constraint_table():
 def test_generate_constraint_table_for_multiple_entity_each_domain():
     constraint_mapping = [
         ["X", "Y"],  # domain #1 contain entity X and Y
-        ["Y"]        # domain #2 only contain entity Y
+        ["Y"],  # domain #2 only contain entity Y
     ]
 
-    tag_dict = dict(enumerate(["O", "B-X", "I-X", "L-X", "U-X", "B-Y", "I-Y", "L-Y", "U-Y"]))
+    tag_dict = dict(
+        enumerate(["O", "B-X", "I-X", "L-X", "U-X", "B-Y", "I-Y", "L-Y", "U-Y"])
+    )
 
-    actual = generate_constraint_table(constraint_mapping, tag_dict, tag_scheme='BIOUL')
+    actual = generate_constraint_table(constraint_mapping, tag_dict, tag_scheme="BIOUL")
 
     expected = np.array([
         [
