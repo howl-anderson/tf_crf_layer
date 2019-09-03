@@ -1,5 +1,7 @@
 """
 Conditional random field
+
+Some code are copied from AllenNLP
 """
 from collections import namedtuple
 from typing import List, Tuple, Dict
