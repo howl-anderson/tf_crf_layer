@@ -23,6 +23,7 @@ vocab = 3000
 EMBED_DIM = 300
 BiRNN_UNITS = 48
 class_labels_number = 9
+EPOCHS = 10
 
 train_x, train_y = read_train_data()
 test_x, test_y = read_test_data()
@@ -59,6 +60,7 @@ vocab = 3000
 EMBED_DIM = 300
 BiRNN_UNITS = 48
 class_labels_number = 9
+EPOCHS = 10
 
 tag_decoded_labels = get_tag_decoded_labels()
 train_x, train_y = read_train_data()
@@ -98,6 +100,7 @@ BiRNN_UNITS = 48
 class_labels_number = 9
 MAX_LEN = 24
 intent_number = 2
+EPOCHS = 10
 
 tag_decoded_labels = get_tag_decoded_labels()
 train_x, train_y = read_train_data()
