@@ -1,3 +1,4 @@
+# come code are copied from AllenNLP
 from pytest import raises
 
 from tf_crf_layer.crf_helper import allowed_transitions
