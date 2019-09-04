@@ -49,20 +49,3 @@ def crf_accuracy(y_true, y_pred):
         return crf_viterbi_accuracy(y_true, y_pred)
     else:
         return crf_marginal_accuracy(y_true, y_pred)
-
-
-from tensorflow.python.keras.metrics import MeanMetricWrapper
-
-
-class SequenceAccuracy(MeanMetricWrapper):
-  def __init__(self, name='sequence_accuracy', dtype=None):
-    """Creates a `CategoricalAccuracy` instance.
-    Args:
-      name: (Optional) string name of the metric instance.
-      dtype: (Optional) data type of the metric result.
-    """
-    super(SequenceAccuracy, self).__init__(
-        self.smart_categorical_accuracy, name, dtype=dtype)
-
-  def smart_categorical_accuracy(self, y_true, y_pred):
-      pass
