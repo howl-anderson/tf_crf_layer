@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.losses import sparse_categorical_crossentropy, \
     categorical_crossentropy
 
@@ -12,16 +13,16 @@ def crf_nll(y_true, y_pred):
 #     if crf.sparse_target:
 #         y_true = tf.one_hot(tf.cast(y_true[:, :, 0], 'int32'), crf.units)
 
-    node = crf._inbound_nodes[idx]
-
-    print(node)
-    print(node.input_tensors)
+    # node = crf._inbound_nodes[idx]
+    #
+    # print(node)
+    # print(node.input_tensors)
 
     # X = node.input_tensors[0]
     # mask = node.input_tensors[1]
 
     # nloglik = crf.get_negative_log_likelihood(y_pred, y_true, mask)
-    nloglik = crf.get_negative_log_likelihood(y_true)
+    nloglik = crf.get_negative_log_likelihood(y_true)  # shape: (batch_size, )
 
     return nloglik
 
@@ -37,3 +38,10 @@ def crf_loss(y_true, y_pred):
             return sparse_categorical_crossentropy(y_true, y_pred)
         else:
             return categorical_crossentropy(y_true, y_pred)
+
+
+class CrfLoss(object):
+    def __call__(self, y_true, y_pred, sample_weight=None):
+        loss_vector = crf_loss(y_true, y_pred)
+
+        return K.mean(loss_vector)

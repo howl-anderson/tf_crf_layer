@@ -558,16 +558,16 @@ class CRF(Layer):
         output_shape = input_shape[:2]
         return output_shape
 
-    def compute_mask(self, input, mask=None):
-        if isinstance(mask, list):
-            mask = mask[0]
-
-        if mask is not None and self.learn_mode == "join":
-            # transform mask from shape (?, ?) to (?, )
-            new_mask = K.any(mask, axis=1)
-            return new_mask
-
-        return mask
+    # def compute_mask(self, input, mask=None):
+    #     if isinstance(mask, list):
+    #         mask = mask[0]
+    #
+    #     if mask is not None and self.learn_mode == "join":
+    #         # transform mask from shape (?, ?) to (?, )
+    #         new_mask = K.any(mask, axis=1)
+    #         return new_mask
+    #
+    #     return mask
 
     # def get_decode_result(self, logits, mask):
     #     nwords = K.cast(K.sum(mask, 1), tf.int64)
@@ -586,6 +586,12 @@ class CRF(Layer):
         y_true = K.cast(y_true, tf.int64)
         nwords = K.cast(nwords, tf.int32)
         self.chain_kernel = K.cast(self.chain_kernel, tf.float32)
+
+        # print_op = tf.print([tf.shape(y_preds), tf.shape(y_true), tf.shape(nwords)])
+        # with tf.control_dependencies([print_op]):
+        #     y_preds = tf.identity(y_preds)
+
+        # print(K.get_session().graph.get_name_scope())
 
         log_likelihood, _ = crf_log_likelihood(
             y_preds, y_true, nwords, self.chain_kernel

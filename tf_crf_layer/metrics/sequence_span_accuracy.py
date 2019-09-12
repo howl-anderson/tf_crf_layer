@@ -24,7 +24,7 @@ class SequenceSpanAccuracy(Mean):
             dtype=dtype
         )
 
-    def update_state(self, y_true, y_pred, sample_weight=None):
+    def update_state(self, y_true, y_pred, *args, **kwargs):
         """
 
         :param y_true: Tensor shape: (B, T)
@@ -34,9 +34,36 @@ class SequenceSpanAccuracy(Mean):
         """
         value = K.equal(y_pred, y_true)  # shape: (B, T)
 
-        # # # DEBUG: output training value
-        print_op = tf.print(sample_weight)
-        with tf.control_dependencies([print_op]):
-            value = tf.identity(value)
+        mask = kwargs['mask']
 
-        super(SequenceSpanAccuracy, self).update_state(value, sample_weight)
+        # # # DEBUG: output training value
+        # print_op = tf.print(mask)
+        # with tf.control_dependencies([print_op]):
+        #     value = tf.identity(value)
+
+        super(SequenceSpanAccuracy, self).update_state(value, *args, **kwargs)
+
+
+def get_mask_from_keras_tensor(y_pred):
+    layer, node_index = y_pred._keras_history[:2]
+    mask = layer.output_mask
+
+    return mask
+
+
+def sequence_span_accuracy(y_true, y_pred):
+    """
+
+    :param y_true: Tensor shape: (B, T)
+    :param y_pred: Tensor shape (B, T)
+    :return:
+    """
+    judge = K.cast(K.equal(y_pred, y_true), K.floatx())  # shape: (B, T)
+    mask = get_mask_from_keras_tensor(y_pred)  # shape: (B, T)
+    if mask is None:
+        result = K.mean(judge)
+        return result
+    else:
+        mask = K.cast(mask, K.floatx())
+        result = K.sum(judge * mask) / K.sum(mask)
+        return result
