@@ -1,9 +1,9 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='tf_crf_layer',
     version='0.1',
-    packages=['tf_crf_layer'],
+    packages=find_packages(include=['tf_crf_layer', 'tf_crf_layer.*']),
     url='URL',
     license='MIT',
     install_requires=[
