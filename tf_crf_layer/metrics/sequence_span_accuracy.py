@@ -34,8 +34,6 @@ class SequenceSpanAccuracy(Mean):
         """
         value = K.equal(y_pred, y_true)  # shape: (B, T)
 
-        mask = kwargs['mask']
-
         # # # DEBUG: output training value
         # print_op = tf.print(mask)
         # with tf.control_dependencies([print_op]):

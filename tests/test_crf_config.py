@@ -2,7 +2,7 @@ from tensorflow.python.keras import Sequential
 from tensorflow.python.keras.layers import Embedding
 
 from tf_crf_layer.layer import CRF
-from tf_crf_layer.loss import crf_loss
+from tf_crf_layer.loss import crf_loss, ConditionalRandomFieldLoss
 from tests.common import get_random_data
 
 
@@ -19,13 +19,15 @@ def test_crf_config():
     # right padding; left padding is not supported due to the tf.contrib.crf
     x[0, -4:] = 0
 
+    crf_loss_instance = ConditionalRandomFieldLoss()
+
     # test with masking, fix length
     model = Sequential()
     model.add(
         Embedding(embedding_num, embedding_dim, input_length=timesteps, mask_zero=True)
     )
     model.add(CRF(output_dim, name="crf_layer"))
-    model.compile(optimizer="rmsprop", loss=crf_loss)
+    model.compile(optimizer="rmsprop", loss={"crf_layer": crf_loss_instance})
     model.summary()
     model.fit(x, y, epochs=1, batch_size=10)
 
