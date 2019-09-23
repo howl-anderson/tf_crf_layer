@@ -22,7 +22,7 @@ MODEL_PERSISTENCE_PATH = './test_saving_crf_model.h5'
 @pytest.mark.xfail(is_tf_keras,
                    reason='TODO: fix it. Using K.tf which is bad.',
                    strict=True)
-def test_CRF():
+def _test_CRF():
     # data
     x = np.random.randint(1, embedding_num, nb_samples * timesteps)
     x = x.reshape((nb_samples, timesteps))
