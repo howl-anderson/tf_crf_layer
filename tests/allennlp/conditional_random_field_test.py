@@ -13,7 +13,7 @@ import tensorflow as tf
 from tf_crf_layer.layer import CRF
 from tf_crf_layer.crf_helper import allowed_transitions
 from tf_crf_layer.exceptions import ConfigurationError
-from tf_crf_layer.loss import crf_loss
+from tf_crf_layer.loss import crf_loss, ConditionalRandomFieldLoss
 
 from tests.MockedMasking import MockMasking
 
@@ -49,7 +49,8 @@ class TestConditionalRandomField(unittest.TestCase):
             chain_initializer=initializers.Constant(self.transitions),
             use_boundary=True,
             left_boundary_initializer=initializers.Constant(self.transitions_from_start),
-            right_boundary_initializer=initializers.Constant(self.transitions_to_end)
+            right_boundary_initializer=initializers.Constant(self.transitions_to_end),
+            name="crf_layer"
         )
 
     def score(self, logits, tags):
@@ -89,10 +90,12 @@ class TestConditionalRandomField(unittest.TestCase):
     #     assert manual_log_likelihood.item() == approx(log_likelihood)
 
     def test_forward_works_without_mask(self):
+        crf_loss_instance = ConditionalRandomFieldLoss()
+
         model = Sequential()
         model.add(layers.Input(shape=(3, 5)))
         model.add(self.crf)
-        model.compile('adam', loss=crf_loss)
+        model.compile('adam', loss={"crf_layer": crf_loss_instance})
         model.summary()
 
         log_likelihood = model.train_on_batch(self.logits, self.tags)
@@ -127,11 +130,13 @@ class TestConditionalRandomField(unittest.TestCase):
                 [1, 1, 0]
         ])
 
+        crf_loss_instance = ConditionalRandomFieldLoss()
+
         model = Sequential()
         model.add(layers.Input(shape=(3, 5)))
         model.add(MockMasking(mask_shape=(2, 3), mask_value=mask))
         model.add(self.crf)
-        model.compile('adam', loss=crf_loss)
+        model.compile('adam', loss={"crf_layer": crf_loss_instance})
         model.summary()
 
         log_likelihood = model.train_on_batch(self.logits, self.tags)
@@ -172,11 +177,13 @@ class TestConditionalRandomField(unittest.TestCase):
                 [1, 1, 0]
         ])
 
+        crf_loss_instance = ConditionalRandomFieldLoss()
+
         model = Sequential()
         model.add(layers.Input(shape=(3, 5)))
         model.add(MockMasking(mask_shape=(2, 3), mask_value=mask))
         model.add(self.crf)
-        model.compile('adam', loss=crf_loss)
+        model.compile('adam', loss={"crf_layer": crf_loss_instance})
         model.summary()
 
         # Separate the tags and scores.
@@ -244,14 +251,17 @@ class TestConditionalRandomField(unittest.TestCase):
             use_boundary=True,
             left_boundary_initializer=initializers.Constant(self.transitions_from_start),
             right_boundary_initializer=initializers.Constant(self.transitions_to_end),
-            transition_constraint=constraints
+            transition_constraint=constraints,
+            name="crf_layer"
         )
+
+        crf_loss_instance = ConditionalRandomFieldLoss()
 
         model = Sequential()
         model.add(layers.Input(shape=(3, 5)))
         model.add(MockMasking(mask_shape=(2, 3), mask_value=mask))
         model.add(crf)
-        model.compile('adam', loss=crf_loss)
+        model.compile('adam', loss={"crf_layer": crf_loss_instance})
         model.summary()
 
         for layer in model.layers:
@@ -348,13 +358,16 @@ class TestConditionalRandomField(unittest.TestCase):
             use_boundary=True,
             left_boundary_initializer=initializers.Constant(transitions_from_start),
             right_boundary_initializer=initializers.Constant(transitions_to_end),
-            transition_constraint=constraints
+            transition_constraint=constraints,
+            name="crf_layer"
         )
+
+        crf_loss_instance = ConditionalRandomFieldLoss()
 
         model = Sequential()
         model.add(layers.Input(shape=(3, 5)))
         model.add(crf)
-        model.compile('adam', loss=crf_loss)
+        model.compile('adam', loss={"crf_layer": crf_loss_instance})
         model.summary()
 
         for layer in model.layers:
@@ -413,13 +426,16 @@ class TestConditionalRandomField(unittest.TestCase):
             use_boundary=True,
             left_boundary_initializer=initializers.Constant(transitions_from_start),
             right_boundary_initializer=initializers.Constant(transitions_to_end),
+            name="crf_layer"
         )
+
+        crf_loss_instance = ConditionalRandomFieldLoss()
 
         model = Sequential()
         model.add(layers.Input(shape=(3, 5)))
         model.add(MockMasking(mask_shape=(2, 3), mask_value=mask))
         model.add(crf)
-        model.compile('adam', loss=crf_loss)
+        model.compile('adam', loss={"crf_layer": crf_loss_instance})
         model.summary()
 
         for layer in model.layers:

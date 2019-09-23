@@ -5,7 +5,7 @@ from tensorflow.python.keras.layers import Embedding
 from tensorflow.python.keras.models import load_model
 
 from tf_crf_layer.layer import CRF
-from tf_crf_layer.loss import crf_loss
+from tf_crf_layer.loss import crf_loss, ConditionalRandomFieldLoss
 from tests.common import get_random_data
 
 
@@ -16,13 +16,15 @@ def test_masking_fixed_length():
     output_dim = 5
     embedding_num = 12
 
+    crf_loss_instance = ConditionalRandomFieldLoss()
+
     x, y = get_random_data(nb_samples, timesteps, x_high=embedding_num, y_high=output_dim)
 
     # test with no masking, fix length
     model = Sequential()
     model.add(Embedding(embedding_num, embedding_dim, input_length=timesteps))
-    model.add(CRF(output_dim))
-    model.compile(optimizer='adam', loss=crf_loss)
+    model.add(CRF(output_dim, name="crf_layer"))
+    model.compile(optimizer='adam', loss={"crf_layer": crf_loss_instance})
     model.summary()
     model.fit(x, y, epochs=1, batch_size=1)
     model.fit(x, y, epochs=1, batch_size=2)

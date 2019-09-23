@@ -10,8 +10,10 @@ from tensorflow.python.keras import backend as K
 # N: n * n
 # T: sequence length
 # F: feature number
+from tf_crf_layer.keras_utils import register_keras_custom_object
 
 
+@register_keras_custom_object
 class SequenceCorrectness(Mean):
     def __init__(self, name="sequence_correctness", dtype=None):
         """Creates a `CategoricalAccuracy` instance.

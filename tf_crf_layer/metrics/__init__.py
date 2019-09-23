@@ -1,3 +1,3 @@
-from tf_crf_layer.metrics.crf_accuracy import crf_accuracy
+from tf_crf_layer.metrics.crf_accuracy import crf_accuracy, crf_viterbi_accuracy
 from tf_crf_layer.metrics.sequence_correctness import SequenceCorrectness
 from tf_crf_layer.metrics.sequence_span_accuracy import SequenceSpanAccuracy, sequence_span_accuracy

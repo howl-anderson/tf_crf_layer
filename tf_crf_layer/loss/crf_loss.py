@@ -2,8 +2,10 @@ import tensorflow as tf
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.losses import sparse_categorical_crossentropy, \
     categorical_crossentropy
+from tensorflow.python.keras.utils.losses_utils import ReductionV2
 
 from tf_crf_layer import keras_utils
+from tf_crf_layer.keras_utils import register_keras_custom_object
 
 
 def crf_nll(y_true, y_pred):
@@ -27,6 +29,7 @@ def crf_nll(y_true, y_pred):
     return nloglik
 
 
+@register_keras_custom_object
 def crf_loss(y_true, y_pred):
     crf, idx = y_pred._keras_history[:2]
     print(crf, idx)
@@ -40,7 +43,33 @@ def crf_loss(y_true, y_pred):
             return categorical_crossentropy(y_true, y_pred)
 
 
-class CrfLoss(object):
+# @register_keras_custom_object
+# class ConditionalRandomFieldLoss(tf.keras.losses.Loss):
+#     def __init__(self, name=None):
+#         super(ConditionalRandomFieldLoss, self).__init__(reduction=ReductionV2.SUM_OVER_BATCH_SIZE, name=name)
+#
+#     def get_config(self):
+#         config = {}
+#         base_config = super(ConditionalRandomFieldLoss, self).get_config()
+#         return dict(list(base_config.items()) + list(config.items()))
+#
+#     def call(self, y_true, y_pred):
+#         loss_vector = crf_loss(y_true, y_pred)
+#
+#         two_dim_loss = K.expand_dims(loss_vector)
+#
+#         mask = K.ones_like(y_true)
+#
+#         full_shape_loss = tf.math.multiply(two_dim_loss, mask)
+#
+#         return full_shape_loss
+
+
+@register_keras_custom_object
+class ConditionalRandomFieldLoss(object):
+    def get_config(self):
+        return {}
+
     def __call__(self, y_true, y_pred, sample_weight=None):
         loss_vector = crf_loss(y_true, y_pred)
 
