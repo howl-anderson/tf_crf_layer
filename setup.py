@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="tf_crf_layer",
-    version="0.2.0",
+    version="0.2.1",
     packages=find_packages(include=["tf_crf_layer", "tf_crf_layer.*"]),
     url="https://github.com/howl-anderson/tf_crf_layer",
     license="MIT",
