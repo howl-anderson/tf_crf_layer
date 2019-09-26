@@ -550,6 +550,8 @@ class CRF(Layer):
             "input_dim": self.input_dim,
             "unroll": self.unroll,
             "transition_constraint": self.transition_constraint,
+            "transition_constraint_matrix": self.transition_constraint_matrix,
+            "pooling_strategy": self.pooling_strategy,
         }
         base_config = super(CRF, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
