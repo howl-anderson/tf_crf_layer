@@ -235,7 +235,7 @@ class CRF(Layer):
 
         dynamic_transition_constraint_indicator = None
 
-        if isinstance(inputs, list):
+        if isinstance(inputs, list) and len(inputs) > 1:
             assert len(inputs) == 2, "Input must have two input tensors"
 
             dynamic_transition_constraint_indicator = inputs[1]
@@ -243,6 +243,9 @@ class CRF(Layer):
                 dynamic_transition_constraint_indicator
             )
 
+            inputs = inputs[0]
+            self.inputs = inputs
+        else:
             inputs = inputs[0]
             self.inputs = inputs
 
