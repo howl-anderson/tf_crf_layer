@@ -130,3 +130,6 @@ model.summary()
 model.compile('adam', loss=crf_loss, metrics=[crf_accuracy])
 model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
 ```
+
+# TODO
+* Add more metric according to http://www.davidsbatista.net/blog/2018/05/09/Named_Entity_Evaluation/
