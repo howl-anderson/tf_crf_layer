@@ -3,10 +3,9 @@ from tensorflow.python.keras.layers import Embedding
 
 from tf_crf_layer.layer import CRF
 from tf_crf_layer.loss import crf_loss, ConditionalRandomFieldLoss
-from tests.common import get_random_data
 
 
-def test_crf_config():
+def test_crf_config(get_random_data):
     nb_samples = 2
     timesteps = 10
     embedding_dim = 4
@@ -28,13 +27,11 @@ def test_crf_config():
     )
     model.add(CRF(output_dim, name="crf_layer"))
     model.compile(optimizer="rmsprop", loss={"crf_layer": crf_loss_instance})
-    model.summary()
+
     model.fit(x, y, epochs=1, batch_size=10)
 
     # test config
     result = model.get_config()
-
-    print(repr(result))
 
     expected = {
         "name": "sequential",
@@ -71,12 +68,9 @@ def test_crf_config():
                     "trainable": True,
                     "dtype": "float32",
                     "units": 5,
-                    "learn_mode": "join",
-                    "test_mode": "viterbi",
-                    "use_boundary": False,
+                    "use_boundary": True,
                     "use_bias": True,
                     "use_kernel": True,
-                    "sparse_target": False,
                     "kernel_initializer": {
                         "class_name": "GlorotUniform",
                         "config": {"seed": None, "dtype": "float32"},
@@ -85,11 +79,7 @@ def test_crf_config():
                         "class_name": "Orthogonal",
                         "config": {"gain": 1.0, "seed": None, "dtype": "float32"},
                     },
-                    "left_boundary_initializer": {
-                        "class_name": "Zeros",
-                        "config": {"dtype": "float32"},
-                    },
-                    "right_boundary_initializer": {
+                    "boundary_initializer": {
                         "class_name": "Zeros",
                         "config": {"dtype": "float32"},
                     },
@@ -106,16 +96,9 @@ def test_crf_config():
                     "chain_constraint": None,
                     "boundary_constraint": None,
                     "bias_constraint": None,
-                    "input_dim": 4,
-                    "unroll": False,
-                    "transition_constraint": None,
                 },
             },
         ],
     }
 
-    assert expected == result
-
-
-if __name__ == "__main__":
-    test_crf_config()
+    assert result == expected

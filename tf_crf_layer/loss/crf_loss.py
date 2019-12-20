@@ -34,13 +34,7 @@ def crf_loss(y_true, y_pred):
     crf, idx = y_pred._keras_history[:2]
     print(crf, idx)
 
-    if crf.learn_mode == 'join':
-        return crf_nll(y_true, y_pred)
-    else:
-        if crf.sparse_target:
-            return sparse_categorical_crossentropy(y_true, y_pred)
-        else:
-            return categorical_crossentropy(y_true, y_pred)
+    return crf_nll(y_true, y_pred)
 
 
 # @register_keras_custom_object

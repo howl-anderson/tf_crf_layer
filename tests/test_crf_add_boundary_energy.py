@@ -5,9 +5,6 @@ from tf_crf_layer.layer import CRF
 
 
 def test_crf_add_boundary_energy_with_no_mask():
-    sess = tf.InteractiveSession()
-    sess.as_default()
-
     energy = tf.constant(
         [
             [
@@ -33,12 +30,12 @@ def test_crf_add_boundary_energy_with_no_mask():
     end = tf.constant([-1, -1, -1, -1, -1], dtype=tf.float32)
 
     crf = CRF(None)
-    new_energy_tensor = crf.compute_energy(start, end, energy, mask)
+    new_energy_tensor = crf.add_boundary_energy(energy, mask, start, end)
 
     with tf.Session() as sess:
-        new_energy = sess.run(new_energy_tensor)
+        result = sess.run(new_energy_tensor)
 
-    expected_energy = np.array(
+    expected = np.array(
         [
             [
                 [1, 1, 1, 1, 1],
@@ -57,13 +54,10 @@ def test_crf_add_boundary_energy_with_no_mask():
         ]
     )
 
-    np.testing.assert_array_equal(new_energy, expected_energy)
+    np.testing.assert_array_equal(result, expected)
 
 
 def test_crf_add_boundary_energy_with_mask():
-    sess = tf.InteractiveSession()
-    sess.as_default()
-
     energy = tf.constant(
         [
             [
@@ -102,12 +96,12 @@ def test_crf_add_boundary_energy_with_mask():
     end = tf.constant([-1, -1, -1, -1, -1], dtype=tf.float32)
 
     crf = CRF(None)
-    new_energy_tensor = crf.compute_energy(start, end, energy, mask)
+    new_energy_tensor = crf.add_boundary_energy(energy, mask, start, end)
 
     with tf.Session() as sess:
-        new_energy = sess.run(new_energy_tensor)
+        result = sess.run(new_energy_tensor)
 
-    expected_energy = np.array(
+    expected = np.array(
         [
             [
                 [0, 0, 0, 0, 0],
@@ -133,8 +127,4 @@ def test_crf_add_boundary_energy_with_mask():
         ]
     )
 
-    np.testing.assert_array_equal(new_energy, expected_energy)
-
-
-if __name__ == "__main__":
-    test_crf_add_boundary_energy_with_mask()
+    np.testing.assert_array_equal(result, expected)

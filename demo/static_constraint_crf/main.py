@@ -23,9 +23,6 @@ model.add(Embedding(vacab_size, EMBED_DIM, mask_zero=True))
 model.add(Bidirectional(LSTM(BiRNN_UNITS // 2, return_sequences=True)))
 model.add(CRF(tag_size))
 
-# print model summary
-model.summary()
-
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=config['summary_log_dir'])
 checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     os.path.join(config['model_dir'], 'cp-{epoch:04d}.ckpt'),

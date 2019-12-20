@@ -1,4 +1,3 @@
-from keras.engine import InputSpec
 from tensorflow.python.keras import initializers
 from tensorflow.python.keras.engine import Layer
 import tensorflow as tf
@@ -19,7 +18,7 @@ class MockMasking(Layer):
 
     def build(self, input_shape):
         input_shape = tuple(tf.TensorShape(input_shape).as_list())
-        self.input_spec = [InputSpec(shape=input_shape)]
+        self.input_spec = [tf.keras.layers.InputSpec(shape=input_shape)]
         self.input_dim = input_shape[-1]
 
         self.mask = self.add_weight(

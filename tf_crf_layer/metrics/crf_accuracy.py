@@ -44,6 +44,7 @@ def crf_accuracy(y_true, y_pred):
     """
     Ge default accuracy based on CRF `test_mode`.
     """
+    import pdb; pdb.set_trace()
     crf, idx = y_pred._keras_history[:2]
     if crf.test_mode == 'viterbi':
         return crf_viterbi_accuracy(y_true, y_pred)

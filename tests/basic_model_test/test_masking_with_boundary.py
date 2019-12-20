@@ -3,10 +3,9 @@ from tensorflow.python.keras.layers import Embedding
 
 from tf_crf_layer.layer import CRF
 from tf_crf_layer.loss import crf_loss, ConditionalRandomFieldLoss
-from tests.common import get_random_data
 
 
-def test_masking_with_boundary():
+def test_masking_with_boundary(get_random_data):
     nb_samples = 2
     timesteps = 10
     embedding_dim = 4
@@ -25,7 +24,7 @@ def test_masking_with_boundary():
                         mask_zero=True))
     model.add(CRF(output_dim, use_boundary=True, name="crf_layer"))
     model.compile(optimizer='adam', loss={"crf_layer": crf_loss_instance})
-    model.summary()
+
     model.fit(x, y, epochs=1, batch_size=1)
     model.fit(x, y, epochs=1, batch_size=2)
     model.fit(x, y, epochs=1, batch_size=3)

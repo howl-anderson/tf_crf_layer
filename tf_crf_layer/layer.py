@@ -1,174 +1,171 @@
+"""Implementing Conditional Random Field layer."""
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.keras import backend as K
-from tensorflow.python.keras.utils import tf_utils
-from tensorflow.python.keras import initializers, regularizers, constraints, activations
-from tensorflow.python.keras.layers import InputSpec, Layer
-from tensorflow.contrib.crf import crf_log_likelihood
-from tf_crf_layer.crf import crf_decode
+from tf_crf_layer.crf import crf_decode, crf_log_likelihood
 
 from tf_crf_layer import keras_utils
 
-"""
-TODO
-
-* learn_mode is not supported
-* test_mode is not supported
-* sparse_target is not supported
-* use_boundary need test
-* input_dim is not know how to use
-* unroll is not supported
-
-* left padding of mask is not supported
-
-* not test yet if CRF is the first layer
-"""
-
-
-# for future reference:
-# B: batch size
-# M: intent number
-# n: where n is the tag set number
-# n+2: n plus start and end tag
-# N: n * n
-# T: sequence length
-# F: feature number
-
-
-def add_pooling_strategies(x):
-    # x: shape (B, M, n+2, n+2)
-    # return (B, n+2, n+2)
-    return K.sum(x, axis=1, keepdims=False)
-
-
-pooling_strategies = {"add": add_pooling_strategies}
-
-
 @keras_utils.register_keras_custom_object
-class CRF(Layer):
-    def __init__(
-        self,
-        units,
-        learn_mode="join",
-        test_mode=None,
-        sparse_target=False,
-        use_boundary=False,
-        use_bias=True,
-        use_kernel=True,
-        activation="linear",
-        kernel_initializer="glorot_uniform",
-        chain_initializer="orthogonal",
-        bias_initializer="zeros",
-        left_boundary_initializer="zeros",
-        right_boundary_initializer="zeros",
-        kernel_regularizer=None,
-        chain_regularizer=None,
-        boundary_regularizer=None,
-        bias_regularizer=None,
-        kernel_constraint=None,
-        chain_constraint=None,
-        boundary_constraint=None,
-        bias_constraint=None,
-        input_dim=None,
-        unroll=False,
-        transition_constraint=None,
-        transition_constraint_matrix=None,  # shape: (M, n+2, n+2)
-        pooling_strategy=add_pooling_strategies,
-        **kwargs
-    ):
+class CRF(tf.keras.layers.Layer):
+    """Linear chain conditional random field (CRF).
+
+    Examples:
+
+    ```python
+        from tensorflow_addons.layers import CRF
+
+        model = Sequential()
+        model.add(Embedding(3001, 300, mask_zero=True)
+
+        crf = CRF(10, name='crf_layer')
+        model.add(crf)
+
+        model.compile('adam', loss={'crf_layer': crf.loss})
+
+        model.fit(x, y)
+    ```
+
+    Arguments:
+        units: Positive integer, dimensionality of the output space,
+            should equal to tag num.
+        chain_initializer: Initializer for the `chain_kernel` weights matrix,
+            used for the CRF chain energy.
+            (see [initializers](../initializers.md)).
+        chain_regularizer: Regularizer function applied to
+            the `chain_kernel` weights matrix.
+        chain_constraint: Constraint function applied to
+            the `chain_kernel` weights matrix.
+        use_boundary: Boolean (default True), indicating if trainable
+            start-end chain energies should be added to model.
+        boundary_initializer: Initializer for the `left_boundary`,
+            'right_boundary' weights vectors,
+            used for the start/left and end/right boundary energy.
+        boundary_regularizer: Regularizer function applied to
+            the 'left_boundary', 'right_boundary' weight vectors.
+        boundary_constraint: Constraint function applied to
+            the `left_boundary`, `right_boundary` weights vectors.
+        use_kernel: Boolean (default True), indicating if apply
+            a fully connected layer before CRF op.
+        kernel_initializer: Initializer for the `kernel` weights matrix,
+            used for the linear transformation of the inputs.
+        kernel_regularizer: Regularizer function applied to
+            the `kernel` weights matrix.
+        kernel_constraint: Constraint function applied to
+            the `kernel` weights matrix.
+        use_bias: Boolean (default True), whether the layer uses a bias vector.
+        bias_initializer: Initializer for the bias vector.
+        bias_regularizer: Regularizer function applied to the bias vector.
+        bias_constraint: Constraint function applied to the bias vector.
+        activation: default value is 'linear', Activation function to use.
+
+    Input shape:
+        3D tensor with shape: `(batch_size, sequence_length, feature_size)`.
+
+    Output shape:
+        2D tensor (dtype: int32) with shape: `(batch_size, sequence_length)`.
+
+    Masking:
+        This layer supports masking
+        (2D tensor, shape: `(batch_size, sequence_length)`)
+        for input data with a variable number of timesteps.
+        This layer output same make tensor,
+        NOTICE this may cause issue when you
+        use some keras loss and metrics function which usually expect 1D mask.
+
+    Loss function:
+        Due to the TF 2.0 version support eager execution be default,
+        there is no way can implement CRF loss as independent loss function.
+        Thus, user should use loss method of this layer.
+        See Examples (above) for detailed usage.
+
+    References:
+        - [Conditional Random Field](https://en.wikipedia.org/wiki/Conditional_random_field)
+    """
+
+    def __init__(self,
+                 units,
+                 chain_initializer="orthogonal",
+                 chain_regularizer=None,
+                 chain_constraint=None,
+                 use_boundary=True,
+                 boundary_initializer="zeros",
+                 boundary_regularizer=None,
+                 boundary_constraint=None,
+                 use_kernel=True,
+                 kernel_initializer="glorot_uniform",
+                 kernel_regularizer=None,
+                 kernel_constraint=None,
+                 use_bias=True,
+                 bias_initializer="zeros",
+                 bias_regularizer=None,
+                 bias_constraint=None,
+                 activation="linear",
+                 **kwargs):
         super(CRF, self).__init__(**kwargs)
 
         # setup mask supporting flag, used by base class (the Layer)
+        # because base class's init method will set it to False unconditionally
+        # So this assigned must be executed after call base class's init method
         self.supports_masking = True
 
         self.units = units  # numbers of tags
 
-        self.learn_mode = learn_mode
-        assert self.learn_mode in ["join", "marginal"]
-
-        self.test_mode = test_mode
-        if self.test_mode is None:
-            self.test_mode = "viterbi" if self.learn_mode == "join" else "marginal"
-        else:
-            assert self.test_mode in ["viterbi", "marginal"]
-        self.sparse_target = sparse_target
         self.use_boundary = use_boundary
         self.use_bias = use_bias
         self.use_kernel = use_kernel
 
-        self.activation = activations.get(activation)
+        self.activation = tf.keras.activations.get(activation)
 
-        self.kernel_initializer = initializers.get(kernel_initializer)
-        self.chain_initializer = initializers.get(chain_initializer)
-        self.left_boundary_initializer = initializers.get(left_boundary_initializer)
-        self.right_boundary_initializer = initializers.get(right_boundary_initializer)
-        self.bias_initializer = initializers.get(bias_initializer)
+        self.kernel_initializer = tf.keras.initializers.get(kernel_initializer)
+        self.chain_initializer = tf.keras.initializers.get(chain_initializer)
+        self.boundary_initializer = tf.keras.initializers.get(
+            boundary_initializer)
+        self.bias_initializer = tf.keras.initializers.get(bias_initializer)
 
-        self.kernel_regularizer = regularizers.get(kernel_regularizer)
-        self.chain_regularizer = regularizers.get(chain_regularizer)
-        self.boundary_regularizer = regularizers.get(boundary_regularizer)
-        self.bias_regularizer = regularizers.get(bias_regularizer)
+        self.kernel_regularizer = tf.keras.regularizers.get(kernel_regularizer)
+        self.chain_regularizer = tf.keras.regularizers.get(chain_regularizer)
+        self.boundary_regularizer = tf.keras.regularizers.get(
+            boundary_regularizer)
+        self.bias_regularizer = tf.keras.regularizers.get(bias_regularizer)
 
-        self.kernel_constraint = constraints.get(kernel_constraint)
-        self.chain_constraint = constraints.get(chain_constraint)
-        self.boundary_constraint = constraints.get(boundary_constraint)
-        self.bias_constraint = constraints.get(bias_constraint)
+        self.kernel_constraint = tf.keras.constraints.get(kernel_constraint)
+        self.chain_constraint = tf.keras.constraints.get(chain_constraint)
+        self.boundary_constraint = tf.keras.constraints.get(
+            boundary_constraint)
+        self.bias_constraint = tf.keras.constraints.get(bias_constraint)
 
-        self.input_dim = input_dim
-        self.unroll = unroll
-        self.transition_constraint = transition_constraint
-        self.transition_constraint_matrix = transition_constraint_matrix
-        self.pooling_strategy = pooling_strategy
+        # values will be assigned in method
+        self.input_spec = None
 
         # value remembered for loss/metrics function
-        self.logits = None
-        self.nwords = None
+        self.potentials = None
+        self.sequence_length = None
         self.mask = None
 
         # global variable
         self.kernel = None
-        self.chain_kernel = None  # shape: (self.units, self.units)
+        self.chain_kernel = None
         self.bias = None
         self.left_boundary = None
         self.right_boundary = None
-        self.transition_constraint_mask = None
-        self.transition_constraint_matrix_mask = None
-        self.dynamic_transition_constraint = None
-        self.is_training = False
-
-        # for debug
-        self.dynamic_transition_constraint_input = None
-        self.inputs = None
-        self.actual_left_boundary = None
-        self.actual_right_boundary = None
 
     def build(self, input_shape):
-        if isinstance(input_shape, list):
-            input_shape = input_shape[0]
-
         input_shape = tuple(tf.TensorShape(input_shape).as_list())
-        self.input_spec = [InputSpec(shape=input_shape)]
-        self.input_dim = input_shape[-1]
 
-        self.transition_constraint_mask = self.add_weight(
-            shape=(self.units + 2, self.units + 2),
-            name="transition_constraint_mask",
-            initializer=initializers.Constant(self.get_transition_constraint_mask()),
-            trainable=False,
-        )
+        # see API docs of InputSpec for more detail
+        self.input_spec = [tf.keras.layers.InputSpec(shape=input_shape)]
 
-        if self.transition_constraint_matrix is not None:
-            self.transition_constraint_matrix_mask = self.add_weight(
-                shape=self.transition_constraint_matrix.shape,
-                name="transition_constraint_mask",
-                initializer=initializers.Constant(self.transition_constraint_matrix),
-                trainable=False,
-            )
+        feature_size = input_shape[-1]
 
         if self.use_kernel:
             # weights that mapping arbitrary tensor to correct shape
             self.kernel = self.add_weight(
-                shape=(self.input_dim, self.units),
+                shape=(feature_size, self.units),
                 name="kernel",
                 initializer=self.kernel_initializer,
                 regularizer=self.kernel_regularizer,
@@ -201,14 +198,14 @@ class CRF(Layer):
             self.left_boundary = self.add_weight(
                 shape=(self.units,),
                 name="left_boundary",
-                initializer=self.left_boundary_initializer,
+                initializer=self.boundary_initializer,
                 regularizer=self.boundary_regularizer,
                 constraint=self.boundary_constraint,
             )
             self.right_boundary = self.add_weight(
                 shape=(self.units,),
                 name="right_boundary",
-                initializer=self.right_boundary_initializer,
+                initializer=self.boundary_initializer,
                 regularizer=self.boundary_regularizer,
                 constraint=self.boundary_constraint,
             )
@@ -217,344 +214,188 @@ class CRF(Layer):
         super(CRF, self).build(input_shape)
 
     def call(self, inputs, mask=None, **kwargs):
-        # inputs: Tensor(shape(B, T, F)) or (Tensor(B, T, F), Tensor(B, M))
-        # mask: Tensor(shape=(B, T), dtype=bool) or None
-
-        training = kwargs.get("training", None)
-        if training is None:
-            training = K.learning_phase()
-
-        # session = K.get_session()
-        #
-        # print("training_flag:", session.run(training))
-
-        # # DEBUG: output training value
-        # training = tf.Print(training, [training])
-
-        self.is_training = training
-
-        dynamic_transition_constraint_indicator = None
-
-        if isinstance(inputs, list) and len(inputs) > 1:
-            assert len(inputs) == 2, "Input must have two input tensors"
-
-            dynamic_transition_constraint_indicator = inputs[1]
-            self.dynamic_transition_constraint_input = (
-                dynamic_transition_constraint_indicator
-            )
-
-            inputs = inputs[0]
-            self.inputs = inputs
-        else:
-            inputs = inputs[0]
-            self.inputs = inputs
-
-        if isinstance(mask, list):
-            print(mask)
-            mask = mask[0]
+        # mask: Tensor(shape=(batch_size, sequence_length), dtype=bool) or None
 
         if mask is not None:
-            assert K.ndim(mask) == 2, "Input mask to CRF must have dim 2 if not None"
+            if tf.keras.backend.ndim(mask) != 2:
+                raise ValueError(
+                    "Input mask to CRF must have dim 2 if not None")
+
+        # left padding of mask is not supported, due the underline CRF function
+        # detect it and report it to user
+        first_mask = None
+        if mask is not None:
+            left_boundary_mask = self._compute_mask_left_boundary(mask)
+            first_mask = left_boundary_mask[:, 0]
 
         # remember this value for later use
         self.mask = mask
 
-        if dynamic_transition_constraint_indicator is not None:
-            # reshape from (B, M) to (B, M, 1, 1)
-            constraint_indicator = K.expand_dims(
-                K.expand_dims(dynamic_transition_constraint_indicator)
-            )
-
-            # shape: (B, M, n+2, n+2)
-            raw_constrain_pool = (
-                self.transition_constraint_matrix * constraint_indicator
-            )
-
-            # shape: (B, n+2, n+2)
-            unrolled_dynamic_transition_constraint = self.pooling_strategy(
-                raw_constrain_pool
-            )
-
-            # shape: (B, n+2, n+2), +2 for start and end tag
-            self.dynamic_transition_constraint = unrolled_dynamic_transition_constraint
-
-        logits = self._dense_layer(inputs)
-        print("logits:", logits)
+        if first_mask is not None:
+            no_left_padding = tf.math.reduce_all(first_mask)
+            msg = "Currently, CRF layer do not support left padding"
+            with tf.control_dependencies([
+                    tf.debugging.assert_equal(
+                        no_left_padding, tf.constant(True), message=msg)
+            ]):
+                self.potentials = self._dense_layer(inputs)
+        else:
+            self.potentials = self._dense_layer(inputs)
 
         # appending boundary probability info
         if self.use_boundary:
-            logits = self.add_boundary_energy(logits, mask)
+            self.potentials = self.add_boundary_energy(
+                self.potentials, mask, self.left_boundary, self.right_boundary)
 
-        print("logits:", logits)
+        self.sequence_length = self._get_sequence_length(inputs, mask)
 
-        # remember this value for later use
-        self.logits = logits
+        decoded_sequence, _ = self.get_viterbi_decoding(
+            self.potentials, self.sequence_length)
 
-        nwords = self._get_nwords(inputs, mask)
-        print("nwords: {}".format(nwords))
+        return decoded_sequence
 
-        # remember this value for later use
-        self.nwords = nwords
+    def _get_sequence_length(self, input_, mask):
+        """Currently underline CRF fucntion (provided by
+        tensorflow_addons.text.crf) do not support bi-direction masking (left
+        padding / right padding), it support right padding by tell it the
+        sequence length.
 
-        if self.test_mode == "viterbi":
-            test_output = self.get_viterbi_decoding(logits, nwords)
-        else:
-            # TODO: not supported yet
-            pass
-            # test_output = self.get_marginal_prob(input, mask)
-
-        if self.learn_mode == "join":
-            # WHY: don't remove this line, useless but remote it will cause bug
-            test_output = tf.cast(test_output, tf.float32)
-            out = test_output
-        else:
-            # TODO: not supported yet
-            pass
-            # if self.test_mode == 'viterbi':
-            #     train_output = self.get_marginal_prob(input, mask)
-            #     out = K.in_train_phase(train_output,
-            #                                           test_output)
-            # else:
-            #     out = test_output
-
-        return out
-
-    def _get_nwords(self, input, mask):
+        this function is compute the sequence length from input and
+        mask.
+        """
         if mask is not None:
-            int_mask = K.cast(mask, tf.int8)
-            nwords = self.mask_to_nwords(int_mask)
+            sequence_length = self.mask_to_sequence_length(mask)
         else:
-            # make a mask tensor from input, then used to generate nwords
-            input_energy_shape = tf.shape(input)
+            # make a mask tensor from input, then used to generate sequence_length
+            input_energy_shape = tf.shape(input_)
             raw_input_shape = tf.slice(input_energy_shape, [0], [2])
             alt_mask = tf.ones(raw_input_shape)
 
-            nwords = self.mask_to_nwords(alt_mask)
+            sequence_length = self.mask_to_sequence_length(alt_mask)
 
-        print("nwords: {}".format(nwords))
-        return nwords
+        return sequence_length
 
-    def mask_to_nwords(self, mask):
-        nwords = K.cast(K.sum(mask, 1), tf.int64)
-        return nwords
-
-    @staticmethod
-    def shift_left(x, offset=1):
-        assert offset > 0
-        return K.concatenate([x[:, offset:], K.zeros_like(x[:, :offset])], axis=1)
+    def mask_to_sequence_length(self, mask):
+        """compute sequence length from mask."""
+        sequence_length = tf.keras.backend.cast(
+            tf.keras.backend.sum(tf.keras.backend.cast(mask, tf.int8), 1), tf.int64)
+        return sequence_length
 
     @staticmethod
-    def shift_right(x, offset=1):
-        assert offset > 0
-        return K.concatenate([K.zeros_like(x[:, :offset]), x[:, :-offset]], axis=1)
+    def _compute_mask_right_boundary(mask):
+        """input mask: 0011100, output left_boundary: 0000100."""
+        # shift mask to left by 1: 0011100 => 0111000
+        offset = 1
+        left_shifted_mask = tf.keras.backend.concatenate(
+            [mask[:, offset:],
+             tf.keras.backend.zeros_like(mask[:, :offset])],
+            axis=1)
 
-    def compute_energy(self, start, end, energy, mask):
-        self.actual_left_boundary = start
-        self.actual_right_boundary = end
+        # TODO(howl-anderson): for below code
+        # Original code in keras_contrib:
+        # end_mask = K.cast(
+        #   K.greater(self.shift_left(mask), mask),
+        #   K.floatx()
+        # )
+        # May have a bug, it's better confirmed
+        # by the original keras_contrib maintainer
+        # Luiz Felix (github: lzfelix),
+        # mailed him already and waiting for reply.
 
-        if mask is None:
-            energy = K.concatenate([energy[:, :1, :] + start, energy[:, 1:, :]], axis=1)
+        # 0011100 > 0111000 => 0000100
+        right_boundary = tf.keras.backend.greater(mask, left_shifted_mask)
 
-            energy = K.concatenate([energy[:, :-1, :], energy[:, -1:, :] + end], axis=1)
-        else:
-            mask = K.expand_dims(K.cast(mask, K.floatx()), axis=-1)
-            start_mask = K.cast(K.greater(mask, self.shift_right(mask)), K.floatx())
+        return right_boundary
 
-            # original code:
-            # end_mask = K.cast(K.greater(self.shift_left(mask), mask), K.floatx())
-            # TODO: is this a bug? should be K.greater(mask, self.shift_left(mask)) ?
-            # patch applied
-            end_mask = K.cast(K.greater(mask, self.shift_left(mask)), K.floatx())
-            energy = energy + start_mask * start
-            energy = energy + end_mask * end
+    @staticmethod
+    def _compute_mask_left_boundary(mask):
+        """input mask: 0011100, output left_boundary: 0010000."""
+        # shift mask to right by 1: 0011100 => 0001110
+        offset = 1
+        right_shifted_mask = tf.keras.backend.concatenate(
+            [tf.keras.backend.zeros_like(mask[:, :offset]), mask[:, :-offset]],
+            axis=1)
 
-        return energy
+        # 0011100 > 0001110 => 0010000
+        left_boundary = tf.keras.backend.greater(tf.dtypes.cast(mask, tf.int32),
+                                                 tf.dtypes.cast(right_shifted_mask, tf.int32))
+        # left_boundary = tf.keras.backend.greater(mask, right_shifted_mask)
 
-    def compute_boundary_with_constraint(self):
-        if self.transition_constraint:
-            start_tag = self.units
-            end_tag = self.units + 1
+        return left_boundary
 
-            left_boundary = self.left_boundary * self.transition_constraint_mask[
-                start_tag, : self.units
-            ] + -10000.0 * (
-                1 - self.transition_constraint_mask[start_tag, : self.units]
-            )
-            right_boundary = self.right_boundary * self.transition_constraint_mask[
-                : self.units, end_tag
-            ] + -10000.0 * (1 - self.transition_constraint_mask[: self.units, end_tag])
-
-            return left_boundary, right_boundary
-
-        if self.transition_constraint_matrix is not None:
-            start_tag = self.units
-            end_tag = self.units + 1
-
-            # shape: (B, 1, n)
-            # left_dynamic_constraint = self.dynamic_transition_constraint[:, start_tag, :self.units]  # shape: (B, n)
-            left_dynamic_constraint = tf.slice(
-                self.dynamic_transition_constraint,
-                [0, start_tag, 0],
-                [-1, 1, self.units],
-            )  # shape: (B, 1, n)
-
-            # shape: (B, 1, n)
-            left_boundary = self.left_boundary * left_dynamic_constraint + -10000.0 * (
-                1 - left_dynamic_constraint
-            )
-
-            # shape: (B, 1, n)
-            # right_dynamic_constraint = self.dynamic_transition_constraint[:, :self.units, end_tag]  # shape: (B, n)
-            raw_right_dynamic_constraint = tf.slice(
-                self.dynamic_transition_constraint, [0, 0, end_tag], [-1, self.units, 1]
-            )  # shape: (B, n, 1)
-            right_dynamic_constraint = tf.transpose(
-                raw_right_dynamic_constraint, perm=[0, 2, 1]
-            )  # shape: (B, 1, n)
-
-            # shape: (B, 1, n)
-            right_boundary = (
-                self.right_boundary * right_dynamic_constraint
-                + -10000.0 * (1 - right_dynamic_constraint)
-            )
-
-            return left_boundary, right_boundary
-
-        # no constraint at all, return ordinary energy
-        return self.compute_boundary_ordinary()
-
-    def compute_boundary_without_constraint(self):
-        return self.compute_boundary_ordinary()
-
-    def compute_boundary_ordinary(self):
-        # no any constraint at all
-
+    def add_boundary_energy(self, potentials, mask, start, end):
         def expend_scalar_to_3d(x):
             # expend tensor from shape (x, ) to (1, 1, x)
-            return K.expand_dims(K.expand_dims(x, 0), 0)
+            return tf.keras.backend.expand_dims(
+                tf.keras.backend.expand_dims(x, 0), 0)
 
-        # shape: (1, 1, n)
-        left_boundary = expend_scalar_to_3d(self.left_boundary)
-
-        # shape: (1, 1, n)
-        right_boundary = expend_scalar_to_3d(self.right_boundary)
-
-        return left_boundary, right_boundary
-
-    def add_boundary_energy(self, energy, mask):
-        """
-
-        :param energy: Tensor(shape=(B, T, F))
-        :param mask: Tensor(shape=(B, T), dtype=bool) or None
-        :return:
-        """
-
-        def compute_constrained_energy():
-            left_boundary, right_boundary = self.compute_boundary_with_constraint()
-
-            return self.compute_energy(left_boundary, right_boundary, energy, mask)
-
-        def compute_unconstrained_energy():
-            left_boundary, right_boundary = self.compute_boundary_without_constraint()
-
-            return self.compute_energy(left_boundary, right_boundary, energy, mask)
-
-        computed_energy = tf_utils.smart_cond(
-            self.is_training, compute_unconstrained_energy, compute_constrained_energy
-        )
-
-        return computed_energy
-
-    def compute_static_constrained_chain_kernel(self):
-        if self.transition_constraint:
-            chain_kernel_mask = self.transition_constraint_mask[
-                : self.units, : self.units
-            ]
-            constrained_transitions = (
-                self.chain_kernel * chain_kernel_mask
-                + -10000.0 * (1 - chain_kernel_mask)
+        start = expend_scalar_to_3d(start)
+        end = expend_scalar_to_3d(end)
+        if mask is None:
+            potentials = tf.keras.backend.concatenate(
+                [potentials[:, :1, :] + start, potentials[:, 1:, :]], axis=1)
+            potentials = tf.keras.backend.concatenate(
+                [potentials[:, :-1, :], potentials[:, -1:, :] + end], axis=1)
+        else:
+            mask = tf.keras.backend.expand_dims(
+                tf.keras.backend.cast(mask, start.dtype), axis=-1)
+            start_mask = tf.keras.backend.cast(
+                self._compute_mask_left_boundary(mask),
+                start.dtype,
             )
 
-            return constrained_transitions
-
-    def compute_dynamic_constrained_chain_kernel(self):
-        if self.transition_constraint_matrix is not None:
-            dynamic_chain_kernel_mask = self.dynamic_transition_constraint[
-                :, : self.units, : self.units
-            ]
-            dynamic_constrained_transitions = (
-                self.chain_kernel * dynamic_chain_kernel_mask
-                + -10000.0 * (1 - dynamic_chain_kernel_mask)
+            end_mask = tf.keras.backend.cast(
+                self._compute_mask_right_boundary(mask),
+                end.dtype,
             )
+            potentials = potentials + start_mask * start
+            potentials = potentials + end_mask * end
+        return potentials
 
-            return dynamic_constrained_transitions
+    def get_viterbi_decoding(self, potentials, sequence_length):
+        # decode_tags: A [batch_size, max_seq_len] matrix, with dtype `tf.int32`
+        decode_tags, best_score = crf_decode(potentials, self.chain_kernel,
+                                             sequence_length)
 
-    def get_viterbi_decoding(self, input_energy, nwords):
-        def compute_constrained_chain_kernel():
-            dynamic_constrained_transitions = None
-
-            if self.transition_constraint:
-                dynamic_constrained_transitions = (
-                    self.compute_static_constrained_chain_kernel()
-                )
-
-            if self.transition_constraint_matrix is not None:
-                dynamic_constrained_transitions = (
-                    self.compute_dynamic_constrained_chain_kernel()
-                )
-
-            if dynamic_constrained_transitions is None:
-                # in case there are no constraint at all
-                dynamic_constrained_transitions = self.chain_kernel
-
-            return crf_decode(input_energy, dynamic_constrained_transitions, nwords)
-
-        def compute_unconstrained_chain_kernel():
-            return crf_decode(input_energy, self.chain_kernel, nwords)
-
-        pred_ids, _ = tf_utils.smart_cond(
-            self.is_training,
-            compute_unconstrained_chain_kernel,
-            compute_constrained_chain_kernel,
-        )
-
-        return pred_ids
+        return decode_tags, best_score
 
     def get_config(self):
-        # will be used for loading model from disk,
-        # see https://github.com/keras-team/keras/issues/4871#issuecomment-269714512
-
+        # used for loading model from disk
         config = {
-            "units": self.units,
-            "learn_mode": self.learn_mode,
-            "test_mode": self.test_mode,
-            "use_boundary": self.use_boundary,
-            "use_bias": self.use_bias,
-            "use_kernel": self.use_kernel,
-            "sparse_target": self.sparse_target,
-            "kernel_initializer": initializers.serialize(self.kernel_initializer),
-            "chain_initializer": initializers.serialize(self.chain_initializer),
-            "left_boundary_initializer": initializers.serialize(
-                self.left_boundary_initializer
-            ),
-            "right_boundary_initializer": initializers.serialize(
-                self.right_boundary_initializer
-            ),
-            "bias_initializer": initializers.serialize(self.bias_initializer),
-            "activation": activations.serialize(self.activation),
-            "kernel_regularizer": regularizers.serialize(self.kernel_regularizer),
-            "chain_regularizer": regularizers.serialize(self.chain_regularizer),
-            "boundary_regularizer": regularizers.serialize(self.boundary_regularizer),
-            "bias_regularizer": regularizers.serialize(self.bias_regularizer),
-            "kernel_constraint": constraints.serialize(self.kernel_constraint),
-            "chain_constraint": constraints.serialize(self.chain_constraint),
-            "boundary_constraint": constraints.serialize(self.boundary_constraint),
-            "bias_constraint": constraints.serialize(self.bias_constraint),
-            "input_dim": self.input_dim,
-            "unroll": self.unroll,
-            "transition_constraint": self.transition_constraint,
-            "transition_constraint_matrix": self.transition_constraint_matrix,
-            "pooling_strategy": self.pooling_strategy,
+            "units":
+            self.units,
+            "use_boundary":
+            self.use_boundary,
+            "use_bias":
+            self.use_bias,
+            "use_kernel":
+            self.use_kernel,
+            "kernel_initializer":
+            tf.keras.initializers.serialize(self.kernel_initializer),
+            "chain_initializer":
+            tf.keras.initializers.serialize(self.chain_initializer),
+            "boundary_initializer":
+            tf.keras.initializers.serialize(self.boundary_initializer),
+            "bias_initializer":
+            tf.keras.initializers.serialize(self.bias_initializer),
+            "activation":
+            tf.keras.activations.serialize(self.activation),
+            "kernel_regularizer":
+            tf.keras.regularizers.serialize(self.kernel_regularizer),
+            "chain_regularizer":
+            tf.keras.regularizers.serialize(self.chain_regularizer),
+            "boundary_regularizer":
+            tf.keras.regularizers.serialize(self.boundary_regularizer),
+            "bias_regularizer":
+            tf.keras.regularizers.serialize(self.bias_regularizer),
+            "kernel_constraint":
+            tf.keras.constraints.serialize(self.kernel_constraint),
+            "chain_constraint":
+            tf.keras.constraints.serialize(self.chain_constraint),
+            "boundary_constraint":
+            tf.keras.constraints.serialize(self.boundary_constraint),
+            "bias_constraint":
+            tf.keras.constraints.serialize(self.bias_constraint)
         }
         base_config = super(CRF, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -563,163 +404,58 @@ class CRF(Layer):
         output_shape = input_shape[:2]
         return output_shape
 
-    # def compute_mask(self, input, mask=None):
-    #     if isinstance(mask, list):
-    #         mask = mask[0]
-    #
-    #     if mask is not None and self.learn_mode == "join":
-    #         # transform mask from shape (?, ?) to (?, )
-    #         new_mask = K.any(mask, axis=1)
-    #         return new_mask
-    #
-    #     return mask
-
-    # def get_decode_result(self, logits, mask):
-    #     nwords = K.cast(K.sum(mask, 1), tf.int64)
-    #
-    #     pred_ids, _ = crf_decode(logits, self.chain_kernel,
-    #                                             nwords)
-    #
-    #     return pred_ids
+    def compute_mask(self, input_, mask=None):
+        """ keep mask shape [batch_size, max_seq_len] """
+        return mask
 
     def get_negative_log_likelihood(self, y_true):
-        y_preds = self.logits
-
-        nwords = self.nwords
-
-        y_preds = K.cast(y_preds, tf.float32)
-        y_true = K.cast(y_true, tf.int64)
-        nwords = K.cast(nwords, tf.int32)
-        self.chain_kernel = K.cast(self.chain_kernel, tf.float32)
-
-        # print_op = tf.print([tf.shape(y_preds), tf.shape(y_true), tf.shape(nwords)])
-        # with tf.control_dependencies([print_op]):
-        #     y_preds = tf.identity(y_preds)
-
-        # print(K.get_session().graph.get_name_scope())
+        # TODO(howl-anderson): remove unnecessary typing cast
+        self.potentials = tf.keras.backend.cast(self.potentials, tf.float32)
+        y_true = tf.keras.backend.cast(y_true, tf.int32)
+        self.sequence_length = tf.keras.backend.cast(self.sequence_length,
+                                                     tf.int32)
+        # self.chain_kernel = tf.keras.backend.cast(self.chain_kernel,
+        #                                           tf.float32)
 
         log_likelihood, _ = crf_log_likelihood(
-            y_preds, y_true, nwords, self.chain_kernel
-        )
+            self.potentials, y_true, self.sequence_length, self.chain_kernel)
 
         return -log_likelihood
 
+    def get_loss(self, y_true, y_pred):
+        # we don't use y_pred, but caller pass it anyway, ignore it
+        return self.get_negative_log_likelihood(y_true)
+
     def get_accuracy(self, y_true, y_pred):
-        judge = K.cast(K.equal(y_pred, y_true), K.floatx())
+        judge = tf.keras.backend.cast(
+            tf.keras.backend.equal(y_pred, y_true), tf.keras.backend.floatx())
         if self.mask is None:
-            result = K.mean(judge)
-            return result
+            return tf.keras.backend.mean(judge)
         else:
-            mask = K.cast(self.mask, K.floatx())
-            result = K.sum(judge * mask) / K.sum(mask)
-            return result
+            mask = tf.keras.backend.cast(self.mask, tf.keras.backend.floatx())
+            return (tf.keras.backend.sum(judge * mask) /
+                    tf.keras.backend.sum(mask))
 
     def _dense_layer(self, input_):
-        """
-        mapping any number of features to votes for each tags
-
-        :param input_: Tensor(shape=(B, T, F))
-        :return: Tensor(shape=(B, T, F))
-        """
-        # TODO: can simply just use tf.keras.layers.dense ?
         if self.use_kernel:
-            return self.activation(K.dot(input_, self.kernel) + self.bias)
-
-        return input_
-
-    def get_transition_constraint_mask(self):
-        if not self.transition_constraint:
-            # All transitions are valid.
-            constraint_mask = np.ones([self.units + 2, self.units + 2])
+            output = self.activation(
+                tf.keras.backend.dot(input_, self.kernel) + self.bias)
         else:
-            constraint_mask = np.zeros([self.units + 2, self.units + 2])
-            for i, j in self.transition_constraint:
-                constraint_mask[i, j] = 1.0
+            output = input_
 
-        return constraint_mask
+        return tf.keras.backend.cast(output, self.chain_kernel.dtype)
 
-    def compute_effective_boundary(self, energy):
-        """
+    def __call__(self, inputs, *args, **kwargs):
+        outputs = super(CRF, self).__call__(inputs, *args, **kwargs)
 
-        :return: Tensor(shape=(B, 1, n)) or Tensor(shape=(1, 1, n))
-        """
+        # A hack that add _keras_history to EagerTensor, make it more like normal Tensor
+        for tensor in tf.nest.flatten(outputs):
+            if not hasattr(tensor, '_keras_history'):
+                tensor._keras_history = (self, 0, 0)
 
-        def compute_constrained_boundary():
-            if self.transition_constraint:
-                start_tag = self.units
-                end_tag = self.units + 1
+        return outputs
 
-                left_boundary = self.left_boundary * self.transition_constraint_mask[
-                    start_tag, : self.units
-                ] + -10000.0 * (
-                    1 - self.transition_constraint_mask[start_tag, : self.units]
-                )
-                right_boundary = self.right_boundary * self.transition_constraint_mask[
-                    : self.units, end_tag
-                ] + -10000.0 * (
-                    1 - self.transition_constraint_mask[: self.units, end_tag]
-                )
-
-                return left_boundary, right_boundary
-
-            if self.transition_constraint_matrix is not None:
-                start_tag = self.units
-                end_tag = self.units + 1
-
-                # shape: (B, 1, n)
-                # left_dynamic_constraint = self.dynamic_transition_constraint[:, start_tag, :self.units]  # shape: (B, n)
-                left_dynamic_constraint = tf.slice(
-                    self.dynamic_transition_constraint,
-                    [0, start_tag, 0],
-                    [-1, 1, self.units],
-                )  # shape: (B, 1, n)
-
-                # shape: (B, 1, n)
-                left_boundary = (
-                    self.left_boundary * left_dynamic_constraint
-                    + -10000.0 * (1 - left_dynamic_constraint)
-                )
-
-                # shape: (B, 1, n)
-                # right_dynamic_constraint = self.dynamic_transition_constraint[:, :self.units, end_tag]  # shape: (B, n)
-                raw_right_dynamic_constraint = tf.slice(
-                    self.dynamic_transition_constraint,
-                    [0, 0, end_tag],
-                    [-1, self.units, 1],
-                )  # shape: (B, n, 1)
-                right_dynamic_constraint = tf.transpose(
-                    raw_right_dynamic_constraint, perm=[0, 2, 1]
-                )  # shape: (B, 1, n)
-
-                # shape: (B, 1, n)
-                right_boundary = (
-                    self.right_boundary * right_dynamic_constraint
-                    + -10000.0 * (1 - right_dynamic_constraint)
-                )
-
-                return left_boundary, right_boundary
-
-            return compute_unconstrained_boundary()
-
-        def compute_unconstrained_boundary():
-            # no any constraint at all
-
-            def expend_scalar_to_3d(x):
-                # expend tensor from shape (x, ) to (1, 1, x)
-                return K.expand_dims(K.expand_dims(x, 0), 0)
-
-            # shape: (1, 1, n)
-            left_boundary = expend_scalar_to_3d(self.left_boundary)
-
-            # shape: (1, 1, n)
-            right_boundary = expend_scalar_to_3d(self.right_boundary)
-
-            return left_boundary, right_boundary
-
-        left_boundary, right_boundary = tf_utils.smart_cond(
-            self.is_training,
-            compute_unconstrained_boundary,
-            compute_constrained_boundary,
-        )
-
-        return left_boundary, right_boundary
+    @property
+    def _compute_dtype(self):
+        # fixed output dtype from underline CRF functions
+        return tf.int32

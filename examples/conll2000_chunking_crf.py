@@ -13,6 +13,7 @@ from tensorflow.python.keras.layers import Embedding, Bidirectional, LSTM
 from tf_crf_layer.layer import CRF
 from tf_crf_layer.loss import crf_loss, ConditionalRandomFieldLoss
 from tf_crf_layer.metrics import crf_accuracy
+from tf_crf_layer.metrics.sequence_span_accuracy import SequenceSpanAccuracy
 from examples.datasets import conll2000
 
 EPOCHS = 2
@@ -75,13 +76,13 @@ def main():
     # model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True, input_length=78))  # Random embedding
     crf = CRF(len(class_labels), name="crf_layer")
     model.add(crf)
-    model.summary()
 
     crf_loss_instance = ConditionalRandomFieldLoss()
 
     # The default `crf_loss` for `learn_mode='join'` is negative log likelihood.
-    # model.compile('adam', loss=crf_loss, metrics=[CategoricalAccuracy()])
-    model.compile('adam', loss={"crf_layer": crf_loss_instance}, metrics=[crf_accuracy])
+    model.compile('adam', loss={"crf_layer": crf_loss_instance}, metrics=[SequenceSpanAccuracy()])
+    # model.compile('adam', loss={"crf_layer": crf_loss_instance}, metrics=[CategoricalAccuracy()])
+    # model.compile('adam', loss={"crf_layer": crf_loss_instance}, metrics=[crf_accuracy])
     model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
 
     # test_y_pred = model.predict(test_x).argmax(-1)[test_x > 0]
@@ -101,14 +102,14 @@ def main():
     model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True))  # Random embedding
     # model.add(Embedding(len(vocab), EMBED_DIM, mask_zero=True, input_length=78))  # Random embedding
     model.add(Bidirectional(LSTM(BiRNN_UNITS // 2, return_sequences=True)))
-    crf = CRF(len(class_labels), sparse_target=True, name="crf_layer")
+    crf = CRF(len(class_labels), name="crf_layer")
     model.add(crf)
-    model.summary()
 
     crf_loss_instance = ConditionalRandomFieldLoss()
 
-    # model.compile('adam', loss=crf_loss, metrics=[CategoricalAccuracy()])
-    model.compile('adam', loss={"crf_layer": crf_loss_instance}, metrics=[crf_accuracy])
+    model.compile('adam', loss={"crf_layer": crf_loss_instance}, metrics=[SequenceSpanAccuracy()])
+    # model.compile('adam', loss={"crf_layer": crf_loss_instance}, metrics=[CategoricalAccuracy()])
+    # model.compile('adam', loss={"crf_layer": crf_loss_instance}, metrics=[crf_accuracy])
     model.fit(train_x, train_y, epochs=EPOCHS, validation_data=[test_x, test_y])
 
     predict_result = model.predict(test_x)
