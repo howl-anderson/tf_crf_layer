@@ -2,6 +2,9 @@ import tensorflow as tf
 from tensorflow.python.keras.metrics import Mean
 from tensorflow.python.keras import backend as K
 
+from tf_crf_layer.keras_utils import register_keras_custom_object
+
+
 # for future reference:
 # B: batch size
 # M: intent number
@@ -12,6 +15,7 @@ from tensorflow.python.keras import backend as K
 # F: feature number
 
 
+@register_keras_custom_object
 class SequenceSpanAccuracy(Mean):
     def __init__(self, name="sequence_span_accuracy", dtype=None):
         """Creates a `CategoricalAccuracy` instance.
@@ -49,6 +53,7 @@ def get_mask_from_keras_tensor(y_pred):
     return mask
 
 
+@register_keras_custom_object
 def sequence_span_accuracy(y_true, y_pred):
     """
 
